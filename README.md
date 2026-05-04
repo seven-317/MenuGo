@@ -23,7 +23,11 @@
    - `NEXT_PUBLIC_SUPABASE_URL`
    - `NEXT_PUBLIC_SUPABASE_ANON_KEY`
    - （選填）`SCAN_HMAC_SECRET`：有設的話掃碼頁要帶 `?sig=`，產 QR 時要一起算簽章
-3. 在 Supabase **SQL Editor** 照順序執行：`sql/schema.sql` → `sql/rpc_create_customer_order.sql`
+3. **資料庫**：擇一  
+   - **腳本（推薦）**：在 `.env.local` 加上 **`DATABASE_URL`**（Supabase → **Settings → Database** → Connection string → **URI**，含資料庫密碼），再設定 **`DEMO_OWNER_EMAIL`**（你的 Auth 註冊信箱）或 **`DEMO_OWNER_ID`**（`auth.users` 的 uuid）。  
+     - 全新專案第一次：`npm run setup:migrate`（會跑 `sql/schema.sql` + rpc + 示範種子；若表已存在會失敗）  
+     - 表已建好之後平常用：`npm run setup`（只更新 RPC + 重寫示範餐廳／桌／菜單）  
+   - 或手動在 **SQL Editor** 執行：`sql/schema.sql` → `sql/rpc_create_customer_order.sql`，再執行 `sql/seed_demo_scan.sql`（需自行改 owner uuid）。
 4. **Database → Replication**：幫 `public.orders` 打開 **Realtime**（接單畫面才會即時跳新單）
 5. 開發：`npm run dev`，瀏覽器開 http://localhost:3000  
 
