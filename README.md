@@ -42,7 +42,7 @@
 3. **資料庫與種子**：在 `.env.local` 加上 **`SUPABASE_DB_PASSWORD`**（Supabase → **Database** 的 postgres 密碼），執行 **`npm run setup`**：依序跑 `migrate_tables_rls_rpc.sql`、`migrate_table_sessions.sql`、`rpc_create_customer_order.sql`，並寫入示範餐廳／桌／**入座節次**／菜單。若未加密碼但已手動在 SQL Editor 跑過上述檔案，亦可只依賴種子步驟（視你的 `setup-db.mjs` 設定而定）。
    - 示範掃碼 token 仍為 `menugo_scan_demo_a1`（見 script 輸出或 `npm run scan:url`）。
    - 店長種子可設 `DEMO_OWNER_EMAIL`；未設則使用 Authentication 第一位使用者。
-4. **Database → Replication**：`public.orders` 開啟 **Realtime**（後廚接單即時更新）。
+4. **Database → Replication**：`public.orders` 開啟 **Realtime**（後廚接單即時更新）。若已開啟仍要手動重整，請確認接單頁有登入；專案內已對 Realtime 呼叫 `setAuth(access_token)`，讓 `orders` 的 RLS（僅店長可看）能套用在訂閱上。接單看板並每 15 秒在分頁可見時自動重抓列表作備援。
 5. **`npm run dev`**。
 
 常用指令：`npm run build`、`npm run start`、`npm run lint`、`npm run scan:url`。

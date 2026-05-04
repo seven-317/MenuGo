@@ -154,78 +154,125 @@ export function RealtimeOrderBoard({ restaurantId }: RealtimeOrderBoardProps) {
     return () => window.clearTimeout(id);
   }, [loadOrders]);
 
+  // Realtime 未開或連線異常時仍會自動同步（免手動整頁重整）
+  useEffect(() => {
+    const interval = window.setInterval(() => {
+      if (document.visibilityState === "visible") {
+        void loadOrders();
+      }
+    }, 15000);
+    return () => window.clearInterval(interval);
+  }, [loadOrders]);
+
   useEffect(() => {
     const supabase = createSupabaseBrowserClient();
+    let cancelled = false;
+    let channel: ReturnType<typeof supabase.channel> | null = null;
 
-    const channel = supabase
-      .channel(`orders-board:${restaurantId}`)
-      .on<OrderRow>(
-        "postgres_changes",
-        {
-          event: "INSERT",
-          schema: "public",
-          table: "orders",
-          filter: `restaurant_id=eq.${restaurantId}`,
-        },
-        async (payload: RealtimePostgresInsertPayload<OrderRow>) => {
-          const row = payload.new;
-          let tableNumber = "—";
-          const { data: tableRow } = await supabase
-            .from("tables")
-            .select("table_number")
-            .eq("id", row.table_id)
-            .maybeSingle();
-          if (tableRow?.table_number) {
-            tableNumber = tableRow.table_number;
-          }
+    const syncRealtimeAuth = async (accessToken: string | undefined) => {
+      await supabase.realtime.setAuth(accessToken ?? null);
+    };
 
-          setOrders((prev) => {
-            if (prev.some((o) => o.id === row.id)) {
-              return prev;
+    const start = async () => {
+      const {
+        data: { session },
+      } = await supabase.auth.getSession();
+      if (cancelled) {
+        return;
+      }
+      await syncRealtimeAuth(session?.access_token);
+      if (cancelled) {
+        return;
+      }
+
+      const ch = supabase
+        .channel(`orders-board:${restaurantId}`)
+        .on<OrderRow>(
+          "postgres_changes",
+          {
+            event: "INSERT",
+            schema: "public",
+            table: "orders",
+            filter: `restaurant_id=eq.${restaurantId}`,
+          },
+          async (payload: RealtimePostgresInsertPayload<OrderRow>) => {
+            const row = payload.new;
+            let tableNumber = "—";
+            const { data: tableRow } = await supabase
+              .from("tables")
+              .select("table_number")
+              .eq("id", row.table_id)
+              .maybeSingle();
+            if (tableRow?.table_number) {
+              tableNumber = tableRow.table_number;
             }
-            const next: OrderListItem = {
-              id: row.id,
-              table_number: tableNumber,
-              status: row.status,
-              total_price: Number(row.total_price),
-              created_at: row.created_at,
-            };
-            return [next, ...prev];
-          });
-        },
-      )
-      .on<OrderRow>(
-        "postgres_changes",
-        {
-          event: "UPDATE",
-          schema: "public",
-          table: "orders",
-          filter: `restaurant_id=eq.${restaurantId}`,
-        },
-        (payload: { new: Record<string, unknown> }) => {
-          const row = payload.new as OrderRow;
-          if (!row?.id) {
-            return;
-          }
-          setOrders((prev) => {
-            const ix = prev.findIndex((o) => o.id === row.id);
-            if (ix === -1) {
-              return prev;
+
+            setOrders((prev) => {
+              if (prev.some((o) => o.id === row.id)) {
+                return prev;
+              }
+              const next: OrderListItem = {
+                id: row.id,
+                table_number: tableNumber,
+                status: row.status,
+                total_price: Number(row.total_price),
+                created_at: row.created_at,
+              };
+              return [next, ...prev];
+            });
+          },
+        )
+        .on<OrderRow>(
+          "postgres_changes",
+          {
+            event: "UPDATE",
+            schema: "public",
+            table: "orders",
+            filter: `restaurant_id=eq.${restaurantId}`,
+          },
+          (payload: { new: Record<string, unknown> }) => {
+            const row = payload.new as OrderRow;
+            if (!row?.id) {
+              return;
             }
-            const copy = [...prev];
-            copy[ix] = {
-              ...copy[ix],
-              status: row.status,
-              total_price: Number(row.total_price),
-            };
-            return copy;
-          });
-        },
-      )
-      .subscribe();
+            setOrders((prev) => {
+              const ix = prev.findIndex((o) => o.id === row.id);
+              if (ix === -1) {
+                return prev;
+              }
+              const copy = [...prev];
+              copy[ix] = {
+                ...copy[ix],
+                status: row.status,
+                total_price: Number(row.total_price),
+              };
+              return copy;
+            });
+          },
+        )
+        .subscribe();
+
+      if (cancelled) {
+        void supabase.removeChannel(ch);
+        return;
+      }
+      channel = ch;
+    };
+
+    void start();
+
+    const {
+      data: { subscription },
+    } = supabase.auth.onAuthStateChange(async (_event, session) => {
+      await syncRealtimeAuth(session?.access_token);
+    });
 
     return () => {
-      void supabase.removeChannel(channel);
+      cancelled = true;
+      subscription.unsubscribe();
+      if (channel) {
+        void supabase.removeChannel(channel);
+      }
     };
   }, [restaurantId]);
 
