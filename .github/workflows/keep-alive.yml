@@ -1,0 +1,35 @@
+name: Keep Supabase Alive
+
+on:
+  schedule:
+    # 每天執行兩次：台灣時間上午 12:00 (00:00) 與下午 12:00 (12:00)
+    # UTC 時間 16:00 (前一天) 與 04:00 = 台灣時間 00:00 與 12:00
+    - cron: '0 4,16 * * *'
+  workflow_dispatch: # 允許手動觸發
+
+jobs:
+  keep-alive:
+    runs-on: ubuntu-latest
+    environment: production  # 如果使用 environment 保護 secrets
+    
+    steps:
+      - name: 檢出代碼
+        uses: actions/checkout@v4
+      
+      - name: 設置 Bun
+        uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: latest
+      
+      - name: 安裝依賴
+        run: bun install
+      
+      - name: 執行保活腳本
+        env:
+          NEXT_PUBLIC_SUPABASE_URL: ${{ secrets.NEXT_PUBLIC_SUPABASE_URL }}
+          NEXT_PUBLIC_SUPABASE_ANON_KEY: ${{ secrets.NEXT_PUBLIC_SUPABASE_ANON_KEY }}
+        run: bun run scripts/keep-alive.ts
+      
+      - name: 記錄執行時間
+        if: always()
+        run: echo "保活任務執行完成於 $(date '+%Y-%m-%d %H:%M:%S')"
