@@ -11,7 +11,7 @@ CREATE TABLE IF NOT EXISTS public.table_sessions (
   revoked_at timestamptz,
   CONSTRAINT table_sessions_qr_token_unique UNIQUE (qr_token),
   CONSTRAINT table_sessions_order_within_dining CHECK (
-    order_window_minutes <= dining_duration_minutes
+    order_window_minutes <= dining_duration_minutes 
   )
 );
 
