@@ -5,7 +5,7 @@ CREATE OR REPLACE FUNCTION public.create_customer_order (
 )
 RETURNS uuid
 LANGUAGE plpgsql
-SECURITY INVOKER
+SECURITY DEFINER
 SET search_path = public
 AS $$
 DECLARE

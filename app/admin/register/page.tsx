@@ -1,44 +1,90 @@
 "use client";
 
 import Link from "next/link";
-import { useRouter, useSearchParams } from "next/navigation";
+import { useRouter } from "next/navigation";
 import type { FormEvent } from "react";
 import { Suspense, useState } from "react";
 
 import { createSupabaseBrowserClient } from "@/lib/supabase/client";
 
-function AdminLoginForm() {
+function AdminRegisterForm() {
   const router = useRouter();
-  const searchParams = useSearchParams();
-  const errParam = searchParams.get("error");
-
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
+  const [restaurantName, setRestaurantName] = useState("");
+  const [tableNumber, setTableNumber] = useState("1");
   const [loading, setLoading] = useState(false);
-  const [message, setMessage] = useState<string | null>(
-    errParam ? decodeURIComponent(errParam) : null,
-  );
+  const [message, setMessage] = useState<string | null>(null);
+  const [successVerifyHint, setSuccessVerifyHint] = useState(false);
 
   const handleSubmit = async (e: FormEvent) => {
     e.preventDefault();
     setMessage(null);
-    setLoading(true);
+    setSuccessVerifyHint(false);
 
+    const name = restaurantName.trim();
+    const table = tableNumber.trim() || "1";
+    if (!name) {
+      setMessage("請輸入餐廳名稱");
+      return;
+    }
+
+    setLoading(true);
     const supabase = createSupabaseBrowserClient();
-    const { error } = await supabase.auth.signInWithPassword({
+
+    const { data, error } = await supabase.auth.signUp({
       email: email.trim(),
       password,
     });
 
-    setLoading(false);
-
     if (error) {
+      setLoading(false);
       setMessage(error.message);
       return;
     }
 
-    router.push("/admin");
-    router.refresh();
+    const session = data.session;
+    const user = data.user;
+
+    if (session && user) {
+      const { data: restaurant, error: rErr } = await supabase
+        .from("restaurants")
+        .insert({ name, owner_id: user.id })
+        .select("id")
+        .single();
+
+      if (rErr || !restaurant) {
+        setLoading(false);
+        setMessage(
+          rErr?.message ?? "帳號已建立，但餐廳寫入失敗。請登入後於後台手動建立餐廳。",
+        );
+        return;
+      }
+
+      const { error: tErr } = await supabase.from("tables").insert({
+        restaurant_id: restaurant.id,
+        table_number: table,
+      });
+
+      setLoading(false);
+
+      if (tErr) {
+        setMessage(`餐廳已建立，但第一桌新增失敗：${tErr.message}`);
+        router.push("/admin");
+        router.refresh();
+        return;
+      }
+
+      router.push("/admin");
+      router.refresh();
+      return;
+    }
+
+    setLoading(false);
+    setSuccessVerifyHint(true);
+    setMessage(
+      "已送出註冊。若專案啟用信箱驗證，請開信完成驗證後再登入；登入後若仍無餐廳，請在後台首頁填寫「建立餐廳」表單。",
+    );
   };
 
   return (
@@ -55,17 +101,10 @@ function AdminLoginForm() {
           MenuGo
         </p>
         <h1 className="mt-2 text-center font-menu-display text-2xl font-bold sm:text-3xl">
-          店家後台登入
+          註冊店家
         </h1>
         <p className="mt-2 text-center text-sm text-menu-muted">
-          使用註冊時填寫的 Email 與密碼登入。新店家請先{" "}
-          <Link
-            href="/admin/register"
-            className="font-semibold text-menu-primary underline-offset-4 hover:underline"
-          >
-            註冊店家
-          </Link>
-          。
+          建立帳號後會一併開通您的餐廳（若需信箱驗證，驗證後登入再補上餐廳資料即可）。
         </p>
 
         <form
@@ -73,7 +112,13 @@ function AdminLoginForm() {
           className="menu-reveal mt-10 space-y-4 rounded-3xl border border-menu-border bg-menu-card p-6 shadow-lg"
         >
           {message ? (
-            <p className="rounded-xl border border-red-200 bg-red-50 px-3 py-2 text-sm text-red-900">
+            <p
+              className={`rounded-xl px-3 py-2 text-sm ${
+                successVerifyHint
+                  ? "border border-sky-200 bg-sky-50 text-sky-900"
+                  : "border border-red-200 bg-red-50 text-red-900"
+              }`}
+            >
               {message}
             </p>
           ) : null}
@@ -94,11 +139,37 @@ function AdminLoginForm() {
             密碼
             <input
               type="password"
-              autoComplete="current-password"
+              autoComplete="new-password"
               required
+              minLength={6}
               value={password}
               onChange={(e) => setPassword(e.target.value)}
               className="mt-1.5 w-full rounded-xl border border-menu-border bg-menu-bg px-4 py-3 text-menu-ink outline-none focus-visible:ring-2 focus-visible:ring-menu-cta"
+            />
+          </label>
+
+          <label className="block text-sm font-medium text-menu-ink">
+            餐廳名稱
+            <input
+              type="text"
+              autoComplete="organization"
+              required
+              value={restaurantName}
+              onChange={(e) => setRestaurantName(e.target.value)}
+              className="mt-1.5 w-full rounded-xl border border-menu-border bg-menu-bg px-4 py-3 text-menu-ink outline-none focus-visible:ring-2 focus-visible:ring-menu-cta"
+              placeholder="店名"
+            />
+          </label>
+
+          <label className="block text-sm font-medium text-menu-ink">
+            第一桌桌號
+            <input
+              type="text"
+              required
+              value={tableNumber}
+              onChange={(e) => setTableNumber(e.target.value)}
+              className="mt-1.5 w-full rounded-xl border border-menu-border bg-menu-bg px-4 py-3 text-menu-ink outline-none focus-visible:ring-2 focus-visible:ring-menu-cta"
+              placeholder="例如：1 或 A1"
             />
           </label>
 
@@ -107,17 +178,17 @@ function AdminLoginForm() {
             disabled={loading}
             className="w-full rounded-2xl bg-menu-cta py-3 text-sm font-semibold text-white shadow-md transition-all hover:bg-menu-cta-hover disabled:opacity-60"
           >
-            {loading ? "登入中…" : "登入"}
+            {loading ? "註冊中…" : "註冊並建立餐廳"}
           </button>
         </form>
 
         <p className="mt-8 text-center text-sm text-menu-muted">
-          還沒有帳號？
+          已有帳號？
           <Link
-            href="/admin/register"
+            href="/admin/login"
             className="ms-1 font-semibold text-menu-primary underline-offset-4 hover:underline"
           >
-            註冊店家
+            店家登入
           </Link>
         </p>
         <p className="mt-3 text-center text-sm text-menu-muted">
@@ -133,7 +204,7 @@ function AdminLoginForm() {
   );
 }
 
-export default function AdminLoginPage() {
+export default function AdminRegisterPage() {
   return (
     <Suspense
       fallback={
@@ -142,7 +213,7 @@ export default function AdminLoginPage() {
         </div>
       }
     >
-      <AdminLoginForm />
+      <AdminRegisterForm />
     </Suspense>
   );
 }

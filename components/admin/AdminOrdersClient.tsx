@@ -1,11 +1,10 @@
 "use client";
 
 import Link from "next/link";
-import { useRouter } from "next/navigation";
 import { useState } from "react";
 
 import { RealtimeOrderBoard } from "@/components/admin/RealtimeOrderBoard";
-import { createSupabaseBrowserClient } from "@/lib/supabase/client";
+import { AdminSignOutButton } from "@/components/admin/AdminSignOutButton";
 
 type RestaurantOption = { id: string; name: string };
 
@@ -18,17 +17,7 @@ export function AdminOrdersClient({
   restaurants,
   userEmail,
 }: AdminOrdersClientProps) {
-  const router = useRouter();
   const [restaurantId, setRestaurantId] = useState(restaurants[0]?.id ?? "");
-  const [signingOut, setSigningOut] = useState(false);
-
-  const handleSignOut = async () => {
-    setSigningOut(true);
-    const supabase = createSupabaseBrowserClient();
-    await supabase.auth.signOut();
-    router.push("/admin/login");
-    router.refresh();
-  };
 
   if (!restaurantId) {
     return null;
@@ -46,6 +35,30 @@ export function AdminOrdersClient({
           </h1>
         </div>
         <div className="flex flex-wrap items-center gap-2">
+          <Link
+            href="/admin"
+            className="rounded-xl border border-menu-border bg-menu-card px-4 py-2 text-sm font-medium text-menu-ink transition-colors hover:bg-menu-surface"
+          >
+            主選單
+          </Link>
+          <Link
+            href="/admin/tables"
+            className="rounded-xl border border-menu-border bg-menu-card px-4 py-2 text-sm font-medium text-menu-ink transition-colors hover:bg-menu-surface"
+          >
+            管理餐桌
+          </Link>
+          <Link
+            href="/admin/menus"
+            className="rounded-xl border border-menu-border bg-menu-card px-4 py-2 text-sm font-medium text-menu-ink transition-colors hover:bg-menu-surface"
+          >
+            管理餐點
+          </Link>
+          <Link
+            href="/admin/qr"
+            className="rounded-xl border border-menu-primary/40 bg-menu-primary/10 px-4 py-2 text-sm font-semibold text-menu-primary transition-colors hover:bg-menu-primary/20"
+          >
+            點餐 QR
+          </Link>
           {restaurants.length > 1 ? (
             <label className="flex items-center gap-2 text-sm text-menu-muted">
               餐廳
@@ -62,14 +75,7 @@ export function AdminOrdersClient({
               </select>
             </label>
           ) : null}
-          <button
-            type="button"
-            disabled={signingOut}
-            onClick={() => void handleSignOut()}
-            className="rounded-xl border border-menu-border bg-menu-card px-4 py-2 text-sm font-medium text-menu-ink transition-colors hover:bg-menu-surface disabled:opacity-50"
-          >
-            {signingOut ? "登出中…" : "登出"}
-          </button>
+          <AdminSignOutButton />
           <Link
             href="/"
             className="rounded-xl border border-menu-primary/40 bg-menu-primary/10 px-4 py-2 text-sm font-semibold text-menu-primary transition-colors hover:bg-menu-primary/20"

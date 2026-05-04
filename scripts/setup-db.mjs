@@ -124,6 +124,12 @@ async function ensureSchemaAndRpc(pgUrl) {
 
   await runSqlFilePg(
     pgUrl,
+    "sql/migrate_tables_rls_rpc.sql",
+    path.join(root, "sql", "migrate_tables_rls_rpc.sql"),
+  );
+
+  await runSqlFilePg(
+    pgUrl,
     "sql/rpc_create_customer_order.sql",
     path.join(root, "sql", "rpc_create_customer_order.sql"),
   );
@@ -169,6 +175,58 @@ async function tablesReachable(supabase) {
 async function seedDemo(supabase, ownerId) {
   const demoName = "示範餐廳 MenuGo Demo";
   const qrToken = "menugo_scan_demo_a1";
+
+  const { data: existingRestaurants } = await supabase
+    .from("restaurants")
+    .select("id")
+    .eq("name", demoName);
+
+  const demoRestaurantIds = (existingRestaurants ?? []).map((r) => r.id);
+
+  for (const restaurantId of demoRestaurantIds) {
+    const { data: orderRows, error: orderListErr } = await supabase
+      .from("orders")
+      .select("id")
+      .eq("restaurant_id", restaurantId);
+    if (orderListErr) {
+      throw new Error(`讀取示範訂單失敗：${orderListErr.message}`);
+    }
+
+    const orderIds = (orderRows ?? []).map((o) => o.id);
+    if (orderIds.length > 0) {
+      const { error: oiErr } = await supabase
+        .from("order_items")
+        .delete()
+        .in("order_id", orderIds);
+      if (oiErr) {
+        throw new Error(`清除示範訂單明細失敗：${oiErr.message}`);
+      }
+    }
+
+    const { error: ordDelErr } = await supabase
+      .from("orders")
+      .delete()
+      .eq("restaurant_id", restaurantId);
+    if (ordDelErr) {
+      throw new Error(`清除示範訂單失敗：${ordDelErr.message}`);
+    }
+
+    const { error: tblDelErr } = await supabase
+      .from("tables")
+      .delete()
+      .eq("restaurant_id", restaurantId);
+    if (tblDelErr) {
+      throw new Error(`清除示範桌次失敗：${tblDelErr.message}`);
+    }
+
+    const { error: menuDelErr } = await supabase
+      .from("menus")
+      .delete()
+      .eq("restaurant_id", restaurantId);
+    if (menuDelErr) {
+      throw new Error(`清除示範菜單失敗：${menuDelErr.message}`);
+    }
+  }
 
   const { error: delErr } = await supabase
     .from("restaurants")

@@ -1,0 +1,73 @@
+DROP POLICY IF EXISTS "tables_select_public" ON public."tables";
+DROP POLICY IF EXISTS "tables_select_owner" ON public."tables";
+
+CREATE POLICY "tables_select_owner"
+  ON public."tables"
+  FOR SELECT
+  TO authenticated
+  USING (
+    EXISTS (
+      SELECT 1
+      FROM public.restaurants r
+      WHERE r.id = restaurant_id
+        AND r.owner_id = auth.uid()
+    )
+  );
+
+CREATE OR REPLACE FUNCTION public.get_table_for_scan (p_qr_token text)
+RETURNS TABLE (
+  id uuid,
+  restaurant_id uuid,
+  table_number text
+)
+LANGUAGE sql
+STABLE
+SECURITY DEFINER
+SET search_path = public
+AS $$
+  SELECT t.id, t.restaurant_id, t.table_number
+  FROM public."tables" t
+  WHERE t.qr_token = p_qr_token
+  LIMIT 1;
+$$;
+
+GRANT EXECUTE ON FUNCTION public.get_table_for_scan (text) TO anon, authenticated;
+
+CREATE OR REPLACE FUNCTION public.enforce_order_restaurant_matches_table ()
+RETURNS trigger
+LANGUAGE plpgsql
+SECURITY DEFINER
+SET search_path = public
+AS $$
+BEGIN
+  IF NOT EXISTS (
+    SELECT 1
+    FROM public."tables" t
+    WHERE t.id = NEW.table_id
+      AND t.restaurant_id = NEW.restaurant_id
+  ) THEN
+    RAISE EXCEPTION 'orders.restaurant_id 必須與 table_id 所對應之餐桌餐廳一致';
+  END IF;
+  RETURN NEW;
+END;
+$$;
+
+CREATE OR REPLACE FUNCTION public.enforce_order_item_menu_belongs_to_order_restaurant ()
+RETURNS trigger
+LANGUAGE plpgsql
+SECURITY DEFINER
+SET search_path = public
+AS $$
+BEGIN
+  IF NOT EXISTS (
+    SELECT 1
+    FROM public.orders o
+    INNER JOIN public.menus m ON m.id = NEW.menu_id
+    WHERE o.id = NEW.order_id
+      AND m.restaurant_id = o.restaurant_id
+  ) THEN
+    RAISE EXCEPTION 'order_items.menu_id 必須屬於該訂單餐廳之菜單';
+  END IF;
+  RETURN NEW;
+END;
+$$;

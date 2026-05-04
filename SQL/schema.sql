@@ -58,7 +58,7 @@ CREATE INDEX idx_order_items_menu_id ON public.order_items (menu_id);
 CREATE OR REPLACE FUNCTION public.enforce_order_restaurant_matches_table ()
 RETURNS trigger
 LANGUAGE plpgsql
-SECURITY INVOKER
+SECURITY DEFINER
 SET search_path = public
 AS $$
 BEGIN
@@ -82,7 +82,7 @@ CREATE TRIGGER trg_orders_restaurant_matches_table
 CREATE OR REPLACE FUNCTION public.enforce_order_item_menu_belongs_to_order_restaurant ()
 RETURNS trigger
 LANGUAGE plpgsql
-SECURITY INVOKER
+SECURITY DEFINER
 SET search_path = public
 AS $$
 BEGIN
@@ -188,11 +188,18 @@ CREATE POLICY "menus_delete_owner"
     )
   );
 
-CREATE POLICY "tables_select_public"
+CREATE POLICY "tables_select_owner"
   ON public."tables"
   FOR SELECT
-  TO anon, authenticated
-  USING (true);
+  TO authenticated
+  USING (
+    EXISTS (
+      SELECT 1
+      FROM public.restaurants r
+      WHERE r.id = restaurant_id
+        AND r.owner_id = auth.uid()
+    )
+  );
 
 CREATE POLICY "tables_insert_owner"
   ON public."tables"
@@ -337,6 +344,25 @@ CREATE POLICY "order_items_delete_owner"
         AND r.owner_id = auth.uid()
     )
   );
+
+CREATE OR REPLACE FUNCTION public.get_table_for_scan (p_qr_token text)
+RETURNS TABLE (
+  id uuid,
+  restaurant_id uuid,
+  table_number text
+)
+LANGUAGE sql
+STABLE
+SECURITY DEFINER
+SET search_path = public
+AS $$
+  SELECT t.id, t.restaurant_id, t.table_number
+  FROM public."tables" t
+  WHERE t.qr_token = p_qr_token
+  LIMIT 1;
+$$;
+
+GRANT EXECUTE ON FUNCTION public.get_table_for_scan (text) TO anon, authenticated;
 
 GRANT USAGE ON SCHEMA public TO anon, authenticated;
 

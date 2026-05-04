@@ -134,18 +134,6 @@ export function ScanExperienceClient({
           </>
         ) : null}
       </div>
-
-      <p
-        className="menu-reveal mt-10 text-center"
-        style={{ animationDelay: "0.35s" }}
-      >
-        <Link
-          href="/"
-          className="inline-flex cursor-pointer items-center justify-center rounded-2xl border-2 border-menu-primary bg-transparent px-5 py-3 text-sm font-semibold text-menu-primary outline-none transition-all duration-300 hover:bg-menu-surface motion-safe:hover:-translate-y-0.5 motion-safe:hover:shadow-md focus-visible:ring-2 focus-visible:ring-menu-cta focus-visible:ring-offset-2 focus-visible:ring-offset-menu-bg motion-safe:active:scale-[0.98]"
-        >
-          回首頁
-        </Link>
-      </p>
     </div>
   );
 }

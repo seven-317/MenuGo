@@ -57,15 +57,32 @@ export default async function ScanPage({ params, searchParams }: ScanPageProps) 
 
   const supabase = await createSupabaseServerClient();
 
-  const { data: table, error: tableError } = await supabase
-    .from("tables")
-    .select("id, restaurant_id, table_number")
-    .eq("qr_token", token)
-    .maybeSingle();
+  const { data: tableRows, error: tableError } = await supabase.rpc(
+    "get_table_for_scan",
+    { p_qr_token: token },
+  );
 
-  if (tableError || table == null) {
+  if (tableError) {
     notFound();
   }
+
+  const tableRow = Array.isArray(tableRows)
+    ? tableRows[0]
+    : tableRows;
+
+  if (
+    tableRow == null ||
+    typeof tableRow !== "object" ||
+    !("id" in tableRow)
+  ) {
+    notFound();
+  }
+
+  const table = tableRow as {
+    id: string;
+    restaurant_id: string;
+    table_number: string;
+  };
 
   const { data: restaurant, error: restaurantError } = await supabase
     .from("restaurants")
