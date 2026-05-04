@@ -1,17 +1,22 @@
 #!/usr/bin/env node
 
 /**
- * MenuGo 資料庫一鍵設定
+ * MenuGo 一鍵設定（懶人版）
  *
- * 需要（寫在 .env.local 或 .env）：
- * - DATABASE_URL：Supabase → Project Settings → Database → Connection string → URI（含 postgres 密碼）
- * - DEMO_OWNER_EMAIL 或 DEMO_OWNER_ID：示範餐廳擁有者（auth.users）
+ * 最少只要在 .env.local 有：
+ * - NEXT_PUBLIC_SUPABASE_URL
+ * - NEXT_PUBLIC_SUPABASE_SERVICE_ROLE_KEY（或 SUPABASE_SERVICE_ROLE_KEY）
  *
- * 用法：
- *   npm run setup              # 更新 RPC + 寫入示範餐廳／桌／菜單（需已手動跑過 schema）
- *   npm run setup:migrate      # 在「空資料庫」上執行 sql/schema.sql + rpc + 種子（若表已存在會失敗）
+ * 第一次建表／RPC：後台 **Database → 資料庫密碼** 複製到 .env.local：
+ * - SUPABASE_DB_PASSWORD=你的密碼
+ * （腳本會自動組連線字串跑 sql/schema.sql + rpc；不必找 URI、不必手動貼 SQL）
+ *
+ * 店長是誰：有設 DEMO_OWNER_EMAIL / DEMO_OWNER_ID 就用；沒設 → 自動用 Auth 裡「第一個使用者」。
+ *
+ * 用法：npm run setup
  */
 
+import { createClient } from "@supabase/supabase-js";
 import dotenv from "dotenv";
 import fs from "node:fs";
 import path from "node:path";
@@ -21,101 +26,238 @@ import pg from "pg";
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const root = path.join(__dirname, "..");
 
-dotenv.config({ path: path.join(root, ".env.local") });
 dotenv.config({ path: path.join(root, ".env") });
-
-const migrate = process.argv.includes("--migrate");
+dotenv.config({ path: path.join(root, ".env.local"), override: true });
 
 function die(msg) {
   console.error(msg);
   process.exit(1);
 }
 
-async function resolveOwnerId(client) {
-  const explicit = process.env.DEMO_OWNER_ID?.trim();
-  if (explicit) {
-    return explicit;
-  }
-  const email = process.env.DEMO_OWNER_EMAIL?.trim();
-  if (!email) {
-    die(
-      "請在 .env 設定 DEMO_OWNER_ID（uuid）或 DEMO_OWNER_EMAIL（與 Supabase Auth 註冊信箱相同）",
-    );
-  }
-  const { rows } = await client.query(
-    "SELECT id FROM auth.users WHERE email = $1 LIMIT 1",
-    [email],
-  );
-  if (!rows[0]) {
-    die(
-      `找不到 auth.users 中 email=${email} 的帳號。請先到 Authentication → Users 註冊，或改用 DEMO_OWNER_ID。`,
-    );
-  }
-  return rows[0].id;
+function getSupabaseUrl() {
+  const url =
+    process.env.NEXT_PUBLIC_SUPABASE_URL?.trim() ||
+    process.env.SUPABASE_URL?.trim();
+  if (!url) die("缺少 NEXT_PUBLIC_SUPABASE_URL。");
+  return url;
 }
 
-async function assertSchemaExists(client) {
+function getServiceRoleKey() {
+  const key =
+    process.env.NEXT_PUBLIC_SUPABASE_SERVICE_ROLE_KEY?.trim() ||
+    process.env.SUPABASE_SERVICE_ROLE_KEY?.trim();
+  if (!key) {
+    die("缺少 NEXT_PUBLIC_SUPABASE_SERVICE_ROLE_KEY（Supabase → Settings → API → service_role）。");
+  }
+  return key;
+}
+
+/** 從網址取出 project ref，例如 https://abc.supabase.co → abc */
+function supabaseProjectRef(supabaseUrl) {
+  let host;
+  try {
+    host = new URL(supabaseUrl).hostname;
+  } catch {
+    die("NEXT_PUBLIC_SUPABASE_URL 不是合法網址。");
+  }
+  const suffix = ".supabase.co";
+  if (!host.endsWith(suffix)) {
+    die(
+      "目前僅支援預設 Supabase 網址（*.supabase.co）。若是自訂網域請改設完整的 DATABASE_URL。",
+    );
+  }
+  return host.slice(0, -suffix.length);
+}
+
+/**
+ * 連線字串：優先用 DATABASE_URL；否則用 SUPABASE_DB_PASSWORD（或 DATABASE_PASSWORD）自動組。
+ */
+function resolvePostgresUrl(supabaseUrl) {
+  const explicit = process.env.DATABASE_URL?.trim();
+  if (explicit) return explicit;
+
+  const pw =
+    process.env.SUPABASE_DB_PASSWORD?.trim() ||
+    process.env.DATABASE_PASSWORD?.trim();
+  if (!pw) return null;
+
+  const ref = supabaseProjectRef(supabaseUrl);
+  const user = encodeURIComponent("postgres");
+  const pass = encodeURIComponent(pw);
+  return `postgresql://${user}:${pass}@db.${ref}.supabase.co:5432/postgres`;
+}
+
+function pgSsl(databaseUrl) {
+  return databaseUrl.includes("localhost")
+    ? undefined
+    : { rejectUnauthorized: false };
+}
+
+async function schemaExists(client) {
   const { rows } = await client.query(`
     SELECT EXISTS (
       SELECT 1 FROM information_schema.tables
       WHERE table_schema = 'public' AND table_name = 'restaurants'
     ) AS ok
   `);
-  if (!rows[0]?.ok) {
-    die(
-      "尚未建立資料表。請執行 npm run setup:migrate（僅限空 DB），或手動在 Supabase 執行 sql/schema.sql。",
-    );
+  return Boolean(rows[0]?.ok);
+}
+
+async function runSqlFilePg(databaseUrl, label, filePath) {
+  const sql = fs.readFileSync(filePath, "utf8");
+  console.log(`→ ${label}`);
+  const client = new pg.Client({
+    connectionString: databaseUrl,
+    ssl: pgSsl(databaseUrl),
+  });
+  await client.connect();
+  try {
+    await client.query(sql);
+  } finally {
+    await client.end();
   }
 }
 
-async function runSqlFile(client, label, filePath) {
-  const sql = fs.readFileSync(filePath, "utf8");
-  console.log(`→ ${label}`);
-  await client.query(sql);
+async function ensureSchemaAndRpc(pgUrl) {
+  const probe = new pg.Client({
+    connectionString: pgUrl,
+    ssl: pgSsl(pgUrl),
+  });
+  await probe.connect();
+  let exists;
+  try {
+    exists = await schemaExists(probe);
+  } finally {
+    await probe.end();
+  }
+
+  if (!exists) {
+    console.log("→ 偵測到尚未建表，執行 sql/schema.sql …");
+    await runSqlFilePg(
+      pgUrl,
+      "sql/schema.sql",
+      path.join(root, "sql", "schema.sql"),
+    );
+  } else {
+    console.log("→ 資料表已存在，跳過 schema.sql");
+  }
+
+  await runSqlFilePg(
+    pgUrl,
+    "sql/rpc_create_customer_order.sql",
+    path.join(root, "sql", "rpc_create_customer_order.sql"),
+  );
 }
 
-async function seedDemo(client, ownerId) {
+async function resolveOwnerId(supabase) {
+  const idOpt = process.env.DEMO_OWNER_ID?.trim();
+  if (idOpt) return idOpt;
+
+  const emailOpt = process.env.DEMO_OWNER_EMAIL?.trim();
+  const { data, error } = await supabase.auth.admin.listUsers({
+    page: 1,
+    perPage: 200,
+  });
+  if (error) {
+    die(`無法讀取 Auth 使用者：${error.message}`);
+  }
+  const users = data?.users ?? [];
+  if (users.length === 0) {
+    die("專案裡還沒有任何 Auth 使用者。請到 Supabase → Authentication 先註冊一個帳號，再執行 npm run setup。");
+  }
+
+  if (emailOpt) {
+    const u = users.find(
+      (x) => x.email?.toLowerCase() === emailOpt.toLowerCase(),
+    );
+    if (!u) die(`找不到信箱 ${emailOpt} 的帳號，請改 DEMO_OWNER_EMAIL 或先註冊。`);
+    return u.id;
+  }
+
+  const first = users[0];
+  console.log(
+    `→ 未設定 DEMO_OWNER，使用 Auth 第一位使用者當店長：${first.email ?? "(無信箱)"} / ${first.id}`,
+  );
+  return first.id;
+}
+
+async function tablesReachable(supabase) {
+  const { error } = await supabase.from("restaurants").select("id").limit(1);
+  return !error;
+}
+
+async function seedDemo(supabase, ownerId) {
   const demoName = "示範餐廳 MenuGo Demo";
   const qrToken = "menugo_scan_demo_a1";
 
-  await client.query("BEGIN");
-  try {
-    await client.query(`DELETE FROM public.restaurants WHERE name = $1`, [
-      demoName,
-    ]);
+  const { error: delErr } = await supabase
+    .from("restaurants")
+    .delete()
+    .eq("name", demoName);
+  if (delErr) throw new Error(`清除舊示範餐廳失敗：${delErr.message}`);
 
-    const { rows: rRows } = await client.query(
-      `INSERT INTO public.restaurants (name, owner_id) VALUES ($1, $2) RETURNING id`,
-      [demoName, ownerId],
-    );
-    const restaurantId = rRows[0].id;
+  const { data: rest, error: insRest } = await supabase
+    .from("restaurants")
+    .insert({ name: demoName, owner_id: ownerId })
+    .select("id")
+    .single();
 
-    await client.query(
-      `INSERT INTO public."tables" (restaurant_id, table_number, qr_token) VALUES ($1, $2, $3)`,
-      [restaurantId, "A1", qrToken],
-    );
-
-    const menus = [
-      ["滷肉飯", 65, "主食", "available", "示範用：肥肉與醬汁"],
-      ["排骨飯", 95, "主食", "available", "示範用：酥炸排骨"],
-      ["荷包蛋", 15, "小菜", "available", "單點加蛋"],
-      ["味噌湯", 35, "湯品", "available", "每日現煮"],
-      ["停售品項（測試）", 999, "其他", "sold_out", "不應出現在顧客掃碼頁"],
-    ];
-
-    for (const [name, price, category, status, description] of menus) {
-      await client.query(
-        `INSERT INTO public.menus (restaurant_id, name, price, category, status, description)
-         VALUES ($1, $2, $3, $4, $5, $6)`,
-        [restaurantId, name, price, category, status, description],
-      );
-    }
-
-    await client.query("COMMIT");
-  } catch (e) {
-    await client.query("ROLLBACK");
-    throw e;
+  if (insRest || !rest) {
+    throw new Error(`建立餐廳失敗：${insRest?.message ?? "無資料"}`);
   }
+
+  const { error: tblErr } = await supabase.from("tables").insert({
+    restaurant_id: rest.id,
+    table_number: "A1",
+    qr_token: qrToken,
+  });
+  if (tblErr) throw new Error(`建立桌次失敗：${tblErr.message}`);
+
+  const menuRows = [
+    {
+      restaurant_id: rest.id,
+      name: "滷肉飯",
+      price: 65,
+      category: "主食",
+      status: "available",
+      description: "示範用：肥肉與醬汁",
+    },
+    {
+      restaurant_id: rest.id,
+      name: "排骨飯",
+      price: 95,
+      category: "主食",
+      status: "available",
+      description: "示範用：酥炸排骨",
+    },
+    {
+      restaurant_id: rest.id,
+      name: "荷包蛋",
+      price: 15,
+      category: "小菜",
+      status: "available",
+      description: "單點加蛋",
+    },
+    {
+      restaurant_id: rest.id,
+      name: "味噌湯",
+      price: 35,
+      category: "湯品",
+      status: "available",
+      description: "每日現煮",
+    },
+    {
+      restaurant_id: rest.id,
+      name: "停售品項（測試）",
+      price: 999,
+      category: "其他",
+      status: "sold_out",
+      description: "不應出現在顧客掃碼頁",
+    },
+  ];
+
+  const { error: menuErr } = await supabase.from("menus").insert(menuRows);
+  if (menuErr) throw new Error(`建立菜單失敗：${menuErr.message}`);
 }
 
 function scanUrlHint() {
@@ -126,59 +268,39 @@ function scanUrlHint() {
 }
 
 async function main() {
-  const databaseUrl = process.env.DATABASE_URL?.trim();
-  if (!databaseUrl) {
-    die(
-      "缺少 DATABASE_URL。\n" +
-        "到 Supabase → Project Settings → Database → Connection string，\n" +
-        "選 URI，把完整字串（含密碼）寫進 .env.local。",
+  const url = getSupabaseUrl();
+  const serviceKey = getServiceRoleKey();
+  const pgUrl = resolvePostgresUrl(url);
+
+  const supabase = createClient(url, serviceKey, {
+    auth: { autoRefreshToken: false, persistSession: false },
+  });
+
+  if (pgUrl) {
+    await ensureSchemaAndRpc(pgUrl);
+  } else {
+    const ok = await tablesReachable(supabase);
+    if (!ok) {
+      die(
+        "\n還沒建資料表，請在 .env.local 加一行（Supabase 後台 → Database → 資料庫密碼）：\n\n" +
+          "  SUPABASE_DB_PASSWORD=你的密碼\n\n" +
+          "存檔後再執行：npm run setup\n\n" +
+          "（這個密碼是建立專案時設的 postgres 密碼，不是 anon / service_role JWT。）\n",
+      );
+    }
+    console.log(
+      "→ 未設定 SUPABASE_DB_PASSWORD，略過執行 schema／RPC 檔（假設你已經在後台跑過 SQL）。",
     );
   }
 
-  const client = new pg.Client({
-    connectionString: databaseUrl,
-    ssl: databaseUrl.includes("localhost")
-      ? undefined
-      : { rejectUnauthorized: false },
-  });
+  const ownerId = await resolveOwnerId(supabase);
+  console.log("→ 寫入示範餐廳／桌次／菜單…");
+  await seedDemo(supabase, ownerId);
 
-  await client.connect();
-
-  try {
-    if (migrate) {
-      await runSqlFile(
-        client,
-        "sql/schema.sql（首次建庫；若表已存在會報錯）",
-        path.join(root, "sql", "schema.sql"),
-      );
-      await runSqlFile(
-        client,
-        "sql/rpc_create_customer_order.sql",
-        path.join(root, "sql", "rpc_create_customer_order.sql"),
-      );
-    } else {
-      await assertSchemaExists(client);
-      await runSqlFile(
-        client,
-        "sql/rpc_create_customer_order.sql（可重複執行）",
-        path.join(root, "sql", "rpc_create_customer_order.sql"),
-      );
-    }
-
-    const ownerId = await resolveOwnerId(client);
-    console.log("→ 寫入示範餐廳／桌次／菜單…");
-    await seedDemo(client, ownerId);
-
-    console.log("\n完成。");
-    console.log("掃碼測試網址（未設 SCAN_HMAC_SECRET 時）：", scanUrlHint());
-    console.log(
-      "若已設 SCAN_HMAC_SECRET，請用 signScanToken 產生 ?sig= 一併加到網址。",
-    );
-    console.log(
-      "即時接單請在 Supabase Replication 開啟 public.orders 的 Realtime。",
-    );
-  } finally {
-    await client.end();
+  console.log("\n完成。");
+  console.log("掃碼（沒開 SCAN_HMAC_SECRET 時）：", scanUrlHint());
+  if (process.env.SCAN_HMAC_SECRET?.trim()) {
+    console.log("有 SCAN_HMAC_SECRET 時網址要加 ?sig=（lib/scan/hmac.ts）。");
   }
 }
 

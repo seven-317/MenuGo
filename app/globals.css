@@ -1,26 +1,111 @@
 @import "tailwindcss";
 
+/* MenuGo — 鼠尾草綠 × 奶油底 × 銅橙點綴（較柔、偏餐酒館質感） */
 :root {
-  --background: #ffffff;
-  --foreground: #171717;
+  --menu-bg: #f4f2ed;
+  --menu-ink: #1c1917;
+  --menu-muted: #57534e;
+  --menu-primary: #3d5c4d;
+  --menu-primary-soft: #6d8c7a;
+  --menu-cta: #c25621;
+  --menu-cta-hover: #9a4118;
+  --menu-card: #ffffff;
+  --menu-border: #ddd9d0;
+  --menu-surface: #ebe8e1;
+  --menu-glow-primary: rgba(61, 92, 77, 0.12);
+  --menu-glow-cta: rgba(194, 86, 33, 0.14);
 }
 
 @theme inline {
-  --color-background: var(--background);
-  --color-foreground: var(--foreground);
-  --font-sans: var(--font-geist-sans);
-  --font-mono: var(--font-geist-mono);
+  --color-menu-bg: #f4f2ed;
+  --color-menu-ink: #1c1917;
+  --color-menu-muted: #57534e;
+  --color-menu-primary: #3d5c4d;
+  --color-menu-primary-soft: #6d8c7a;
+  --color-menu-cta: #c25621;
+  --color-menu-cta-hover: #9a4118;
+  --color-menu-card: #ffffff;
+  --color-menu-border: #ddd9d0;
+  --color-menu-surface: #ebe8e1;
+  --font-sans: var(--font-menu-body), ui-sans-serif, system-ui, sans-serif;
+  --font-mono: var(--font-menu-mono), ui-monospace, monospace;
 }
 
-@media (prefers-color-scheme: dark) {
-  :root {
-    --background: #0a0a0a;
-    --foreground: #ededed;
+.font-menu-display {
+  font-family: var(--font-menu-display), ui-serif, Georgia, "Times New Roman",
+    serif;
+}
+
+@keyframes menu-fade-up {
+  from {
+    opacity: 0;
+    transform: translateY(1.15rem);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+@keyframes menu-float-blob {
+  0%,
+  100% {
+    transform: translate(0, 0) scale(1);
+  }
+  35% {
+    transform: translate(-6%, 8%) scale(1.04);
+  }
+  65% {
+    transform: translate(5%, -5%) scale(0.98);
+  }
+}
+
+.menu-reveal {
+  opacity: 0;
+  animation: menu-fade-up 0.75s cubic-bezier(0.25, 0.46, 0.45, 0.94) forwards;
+}
+
+.menu-blob {
+  animation: menu-float-blob 16s ease-in-out infinite;
+  will-change: transform;
+}
+
+/* 第二顆光球錯開節奏 — 獨立 keyframe 延遲用 transform 疊加不易，改用反向 phase */
+@keyframes menu-float-blob-alt {
+  0%,
+  100% {
+    transform: translate(0, 0) scale(1);
+  }
+  40% {
+    transform: translate(6%, -7%) scale(1.03);
+  }
+  70% {
+    transform: translate(-5%, 6%) scale(0.99);
+  }
+}
+
+.menu-blob-alt {
+  animation: menu-float-blob-alt 14s ease-in-out infinite;
+  will-change: transform;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  html {
+    scroll-behavior: auto;
+  }
+  .menu-reveal {
+    opacity: 1 !important;
+    animation: none !important;
+    transform: none !important;
+  }
+  .menu-blob,
+  .menu-blob-alt {
+    animation: none !important;
   }
 }
 
 body {
-  background: var(--background);
-  color: var(--foreground);
-  font-family: var(--font-sans), system-ui, sans-serif;
+  background-color: var(--menu-bg);
+  color: var(--menu-ink);
+  font-family: var(--font-sans);
 }

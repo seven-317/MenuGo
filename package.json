@@ -8,7 +8,7 @@
     "start": "next start",
     "lint": "eslint",
     "setup": "node scripts/setup-db.mjs",
-    "setup:migrate": "node scripts/setup-db.mjs --migrate"
+    "scan:url": "node scripts/print-scan-url.mjs"
   },
   "dependencies": {
     "@supabase/ssr": "^0.10.2",

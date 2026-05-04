@@ -1,4 +1,5 @@
 import type { Metadata } from "next";
+import Link from "next/link";
 import { notFound } from "next/navigation";
 
 import {
@@ -12,7 +13,6 @@ type ScanPageProps = {
   searchParams: Promise<{ sig?: string | string[] }>;
 };
 
-/** 與目前 `qr_token`（hex）及未來可能格式相容；過寬／過窄可自行調整 */
 const TOKEN_RE = /^[a-zA-Z0-9_-]{16,128}$/;
 
 const moneyTwd = new Intl.NumberFormat("zh-TW", {
@@ -36,14 +36,11 @@ export async function generateMetadata({
   const { token: rawToken } = await params;
   const token = decodeURIComponent(rawToken).trim();
   return {
-    title: token ? `桌邊點餐 · MenuGo` : "掃碼點餐 · MenuGo",
+    title: token ? `桌邊點餐` : "掃碼點餐",
     description: "MenuGo QR Code 線上點餐",
   };
 }
 
-/**
- * 顧客掃描：`https://menugo.com/scan/<qr_token>?sig=<HMAC>`（sig 在設定 SCAN_HMAC_SECRET 時必填）
- */
 export default async function ScanPage({ params, searchParams }: ScanPageProps) {
   const { token: rawToken } = await params;
   const sp = await searchParams;
@@ -100,57 +97,88 @@ export default async function ScanPage({ params, searchParams }: ScanPageProps) 
   const items = menuRows.filter((m) => m.status === "available");
 
   return (
-    <div className="min-h-full bg-zinc-50 text-zinc-900">
-      <header className="border-b border-zinc-200 bg-white">
-        <div className="mx-auto flex max-w-2xl flex-col gap-1 px-4 py-4">
-          <p className="text-xs font-medium uppercase tracking-wide text-zinc-500">
-            MenuGo
-          </p>
-          <h1 className="text-xl font-semibold">{restaurant.name}</h1>
-          <p className="text-sm text-zinc-600">
-            桌號 <span className="font-semibold">{table.table_number}</span>
-          </p>
+    <div className="relative min-h-full bg-menu-bg text-menu-ink">
+      <div
+        className="pointer-events-none fixed inset-0 overflow-hidden"
+        aria-hidden
+      >
+        <div className="menu-blob absolute -right-24 top-0 h-64 w-64 rounded-full bg-menu-primary/18 blur-3xl motion-reduce:blur-none" />
+        <div className="menu-blob-alt absolute -left-20 bottom-24 h-72 w-72 rounded-full bg-menu-cta/14 blur-3xl motion-reduce:blur-none" />
+      </div>
+
+      <header
+        className="menu-reveal relative z-10 border-b border-menu-border bg-menu-card/95 shadow-sm backdrop-blur-md"
+        style={{ animationDelay: "0.04s" }}
+      >
+        <div className="mx-auto flex max-w-2xl flex-col gap-1 px-4 py-5 sm:px-6">
+          <div className="flex items-start justify-between gap-3">
+            <div>
+              <p className="text-[0.7rem] font-bold uppercase tracking-[0.2em] text-menu-primary">
+                MenuGo
+              </p>
+              <h1 className="font-menu-display text-2xl font-bold text-menu-ink sm:text-3xl">
+                {restaurant.name}
+              </h1>
+            </div>
+            <span className="shrink-0 rounded-2xl bg-menu-cta px-3 py-1.5 text-center text-sm font-bold text-white shadow-md transition-all duration-300 motion-safe:hover:scale-[1.02] motion-safe:hover:shadow-lg">
+              桌 {table.table_number}
+            </span>
+          </div>
+          <p className="text-sm text-menu-muted">線上瀏覽菜單 · 請向店員確認點餐方式</p>
         </div>
       </header>
 
-      <main className="mx-auto max-w-2xl px-4 py-6">
+      <main className="relative z-10 mx-auto max-w-2xl px-4 py-8 sm:px-6 sm:py-10">
         {items.length === 0 ? (
-          <p className="rounded-xl border border-dashed border-zinc-200 bg-white px-4 py-10 text-center text-sm text-zinc-500">
+          <p
+            className="menu-reveal rounded-3xl border-2 border-dashed border-menu-border bg-menu-card px-6 py-14 text-center text-sm leading-relaxed text-menu-muted"
+            style={{ animationDelay: "0.12s" }}
+          >
             目前沒有可點餐的品項。
           </p>
         ) : (
-          <ul className="space-y-3">
-            {items.map((item) => (
+          <ul className="space-y-4">
+            {items.map((item, index) => (
               <li
                 key={item.id}
-                className="flex gap-3 rounded-xl border border-zinc-200 bg-white p-3 shadow-sm"
+                className="menu-reveal flex gap-4 rounded-3xl border border-menu-border bg-menu-card p-4 shadow-sm transition-all duration-300 motion-safe:hover:-translate-y-0.5 hover:shadow-md"
+                style={{
+                  animationDelay: `${0.1 + Math.min(index, 10) * 0.055}s`,
+                }}
               >
-                <div className="relative h-20 w-20 shrink-0 overflow-hidden rounded-lg bg-zinc-100">
+                <div className="relative h-24 w-24 shrink-0 overflow-hidden rounded-2xl bg-menu-bg ring-1 ring-menu-border">
                   {item.image_url ? (
-                    // eslint-disable-next-line @next/next/no-img-element -- 菜單圖可能為任意 CDN，避免逐網域設定 remotePatterns
+                    // eslint-disable-next-line @next/next/no-img-element -- 圖片來自任意 CDN
                     <img
                       src={item.image_url}
-                      alt=""
+                      alt={item.name}
                       className="h-full w-full object-cover"
                     />
                   ) : (
-                    <div className="flex h-full items-center justify-center text-xs text-zinc-400">
+                    <div
+                      className="flex h-full items-center justify-center text-center text-xs font-medium text-menu-muted"
+                      aria-hidden
+                    >
                       無圖
                     </div>
                   )}
                 </div>
-                <div className="min-w-0 flex-1">
-                  <div className="flex flex-wrap items-baseline justify-between gap-2">
-                    <h2 className="font-medium text-zinc-900">{item.name}</h2>
-                    <p className="shrink-0 text-sm font-semibold text-zinc-900">
+                <div className="min-w-0 flex-1 py-0.5">
+                  <div className="flex flex-wrap items-start justify-between gap-2 gap-y-1">
+                    <h2 className="font-menu-display text-lg font-bold text-menu-ink">
+                      {item.name}
+                    </h2>
+                    <p className="shrink-0 text-base font-bold text-menu-cta">
                       {moneyTwd.format(Number(item.price))}
                     </p>
                   </div>
                   {item.category ? (
-                    <p className="mt-0.5 text-xs text-zinc-500">{item.category}</p>
+                    <p className="mt-1 text-xs font-semibold uppercase tracking-wide text-menu-primary">
+                      {item.category}
+                    </p>
                   ) : null}
                   {item.description ? (
-                    <p className="mt-1 text-sm leading-snug text-zinc-600">
+                    <p className="mt-2 text-sm leading-relaxed text-menu-muted">
                       {item.description}
                     </p>
                   ) : null}
@@ -159,6 +187,18 @@ export default async function ScanPage({ params, searchParams }: ScanPageProps) 
             ))}
           </ul>
         )}
+
+        <p
+          className="menu-reveal mt-10 text-center"
+          style={{ animationDelay: "0.35s" }}
+        >
+          <Link
+            href="/"
+            className="inline-flex cursor-pointer items-center justify-center rounded-2xl border-2 border-menu-primary bg-transparent px-5 py-3 text-sm font-semibold text-menu-primary outline-none transition-all duration-300 hover:bg-menu-surface motion-safe:hover:-translate-y-0.5 motion-safe:hover:shadow-md focus-visible:ring-2 focus-visible:ring-menu-cta focus-visible:ring-offset-2 focus-visible:ring-offset-menu-bg motion-safe:active:scale-[0.98]"
+          >
+            回首頁
+          </Link>
+        </p>
       </main>
     </div>
   );

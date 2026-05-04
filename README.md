@@ -19,17 +19,13 @@
 ## 在本機跑起來
 
 1. 安裝依賴：`npm install`
-2. 複製環境變數：`cp .env.example .env.local`，到 Supabase 專案 **Settings → API** 填入：
-   - `NEXT_PUBLIC_SUPABASE_URL`
-   - `NEXT_PUBLIC_SUPABASE_ANON_KEY`
-   - （選填）`SCAN_HMAC_SECRET`：有設的話掃碼頁要帶 `?sig=`，產 QR 時要一起算簽章
-3. **資料庫**：擇一  
-   - **腳本（推薦）**：在 `.env.local` 加上 **`DATABASE_URL`**（Supabase → **Settings → Database** → Connection string → **URI**，含資料庫密碼），再設定 **`DEMO_OWNER_EMAIL`**（你的 Auth 註冊信箱）或 **`DEMO_OWNER_ID`**（`auth.users` 的 uuid）。  
-     - 全新專案第一次：`npm run setup:migrate`（會跑 `sql/schema.sql` + rpc + 示範種子；若表已存在會失敗）  
-     - 表已建好之後平常用：`npm run setup`（只更新 RPC + 重寫示範餐廳／桌／菜單）  
-   - 或手動在 **SQL Editor** 執行：`sql/schema.sql` → `sql/rpc_create_customer_order.sql`，再執行 `sql/seed_demo_scan.sql`（需自行改 owner uuid）。
-4. **Database → Replication**：幫 `public.orders` 打開 **Realtime**（接單畫面才會即時跳新單）
-5. 開發：`npm run dev`，瀏覽器開 http://localhost:3000  
+2. 複製環境變數：`cp .env.example .env.local`，到 Supabase 填入：
+   - **Settings → API**：`NEXT_PUBLIC_SUPABASE_URL`、`NEXT_PUBLIC_SUPABASE_ANON_KEY`、`NEXT_PUBLIC_SUPABASE_SERVICE_ROLE_KEY`（service_role，給 `npm run setup` 用）
+   - （選填）`SCAN_HMAC_SECRET`
+3. **一次搞定資料庫**：在 `.env.local` 加上 **`SUPABASE_DB_PASSWORD`**（Supabase → **Database** → 登入資料庫用的**密碼**，建立專案時設的那個；不是 anon / service_role 金鑰）。然後執行 **`npm run setup`**：會自動建表、RPC、示範餐廳／桌／菜單；**不必**自己開 SQL Editor。若你**不**加密碼、但後台已手動跑過 `schema` / `rpc`，也可以只跑種子。  
+   - 店長：可設 `DEMO_OWNER_EMAIL`；**不設則自動用 Authentication 裡第一個帳號**。
+4. **Database → Replication**：`public.orders` 開 **Realtime**（接單畫面用）。
+5. **`npm run dev`**。
 
 其他：`npm run build` / `npm run start` / `npm run lint`
 
