@@ -69,21 +69,31 @@ export async function POST(request: Request) {
     return jsonError(500, msg);
   }
 
-  const { data: table, error: tableError } = await supabaseAdmin
-    .from("tables")
-    .select("id")
-    .eq("qr_token", qrToken)
-    .maybeSingle();
+  const { data: scanRows, error: scanRpcError } = await supabaseAdmin.rpc(
+    "get_table_for_scan",
+    { p_qr_token: qrToken },
+  );
 
-  if (tableError || table == null) {
-    return jsonError(404, "找不到桌次");
+  if (scanRpcError) {
+    return jsonError(502, scanRpcError.message ?? "查詢入座節次失敗");
   }
+
+  const scanRow = Array.isArray(scanRows) ? scanRows[0] : scanRows;
+  if (
+    scanRow == null ||
+    typeof scanRow !== "object" ||
+    !("session_id" in scanRow)
+  ) {
+    return jsonError(404, "QR 碼已失效或未找到有效的入座紀錄");
+  }
+
+  const sessionId = (scanRow as { session_id: string }).session_id;
 
   const { data: orderRows, error: ordersError } = await supabaseAdmin
     .from("orders")
     .select("id, status, total_price, created_at, table_id")
     .in("id", uniqueIds)
-    .eq("table_id", table.id);
+    .eq("table_session_id", sessionId);
 
   if (ordersError) {
     return jsonError(502, ordersError.message ?? "查詢訂單失敗");

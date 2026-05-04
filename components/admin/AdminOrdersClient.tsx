@@ -57,7 +57,7 @@ export function AdminOrdersClient({
             href="/admin/qr"
             className="rounded-xl border border-menu-primary/40 bg-menu-primary/10 px-4 py-2 text-sm font-semibold text-menu-primary transition-colors hover:bg-menu-primary/20"
           >
-            點餐 QR
+            入座 QR
           </Link>
           {restaurants.length > 1 ? (
             <label className="flex items-center gap-2 text-sm text-menu-muted">

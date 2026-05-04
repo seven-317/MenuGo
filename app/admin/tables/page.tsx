@@ -3,7 +3,6 @@ import { redirect } from "next/navigation";
 
 import { AdminTablesClient } from "@/components/admin/AdminTablesClient";
 import { loadOwnerSession } from "@/lib/admin/load-owner-session";
-import { buildScanUrl, getAppOrigin } from "@/lib/scan/build-scan-url";
 import { createSupabaseServerClient } from "@/lib/supabase/server";
 
 export const metadata = {
@@ -36,7 +35,7 @@ export default async function AdminTablesPage() {
   const supabase = await createSupabaseServerClient();
   const { data: tableRows, error: tablesError } = await supabase
     .from("tables")
-    .select("id, restaurant_id, table_number, qr_token")
+    .select("id, restaurant_id, table_number")
     .in("restaurant_id", ids)
     .order("restaurant_id", { ascending: true })
     .order("table_number", { ascending: true });
@@ -52,16 +51,10 @@ export default async function AdminTablesPage() {
     );
   }
 
-  const origin = getAppOrigin();
-  const tables = (tableRows ?? []).map((row) => ({
-    ...row,
-    scan_url: buildScanUrl(origin, row.qr_token),
-  }));
-
   return (
     <AdminTablesClient
       restaurants={restaurants}
-      tables={tables}
+      tables={tableRows ?? []}
       userEmail={user.email}
     />
   );

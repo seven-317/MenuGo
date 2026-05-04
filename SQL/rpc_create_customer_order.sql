@@ -1,6 +1,7 @@
+DROP FUNCTION IF EXISTS public.create_customer_order(uuid, uuid, jsonb);
+
 CREATE OR REPLACE FUNCTION public.create_customer_order (
-  p_restaurant_id uuid,
-  p_table_id uuid,
+  p_table_session_id uuid,
   p_items jsonb
 )
 RETURNS uuid
@@ -10,6 +11,10 @@ SET search_path = public
 AS $$
 DECLARE
   v_order_id uuid;
+  v_table_id uuid;
+  v_restaurant_id uuid;
+  v_order_until timestamptz;
+  v_session_until timestamptz;
   v_total numeric(12, 2) := 0;
   el jsonb;
   v_menu_id uuid;
@@ -21,13 +26,26 @@ BEGIN
     RAISE EXCEPTION 'cart must be a non-empty array';
   END IF;
 
-  IF NOT EXISTS (
-    SELECT 1
-    FROM public."tables" t
-    WHERE t.id = p_table_id
-      AND t.restaurant_id = p_restaurant_id
-  ) THEN
-    RAISE EXCEPTION 'table does not belong to restaurant';
+  SELECT
+    s.table_id,
+    s.restaurant_id,
+    s.started_at + (s.order_window_minutes || ' minutes')::interval,
+    s.started_at + (s.dining_duration_minutes || ' minutes')::interval
+  INTO v_table_id, v_restaurant_id, v_order_until, v_session_until
+  FROM public.table_sessions s
+  WHERE s.id = p_table_session_id
+    AND s.revoked_at IS NULL;
+
+  IF v_table_id IS NULL THEN
+    RAISE EXCEPTION 'table session not found or revoked';
+  END IF;
+
+  IF now() >= v_session_until THEN
+    RAISE EXCEPTION 'session expired';
+  END IF;
+
+  IF now() >= v_order_until THEN
+    RAISE EXCEPTION 'ordering window closed';
   END IF;
 
   FOR el IN
@@ -55,7 +73,7 @@ BEGIN
     SELECT m.price INTO v_price
     FROM public.menus m
     WHERE m.id = v_menu_id
-      AND m.restaurant_id = p_restaurant_id;
+      AND m.restaurant_id = v_restaurant_id;
 
     IF v_price IS NULL THEN
       RAISE EXCEPTION 'menu not found or not in this restaurant: %', v_menu_id;
@@ -64,8 +82,20 @@ BEGIN
     v_total := v_total + v_price * v_qty;
   END LOOP;
 
-  INSERT INTO public.orders (table_id, restaurant_id, total_price, status)
-  VALUES (p_table_id, p_restaurant_id, v_total, 'pending')
+  INSERT INTO public.orders (
+    table_id,
+    restaurant_id,
+    table_session_id,
+    total_price,
+    status
+  )
+  VALUES (
+    v_table_id,
+    v_restaurant_id,
+    p_table_session_id,
+    v_total,
+    'pending'
+  )
   RETURNING id INTO v_order_id;
 
   FOR el IN
@@ -84,5 +114,5 @@ BEGIN
 END;
 $$;
 
-GRANT EXECUTE ON FUNCTION public.create_customer_order (uuid, uuid, jsonb) TO anon;
-GRANT EXECUTE ON FUNCTION public.create_customer_order (uuid, uuid, jsonb) TO authenticated;
+GRANT EXECUTE ON FUNCTION public.create_customer_order (uuid, jsonb) TO anon;
+GRANT EXECUTE ON FUNCTION public.create_customer_order (uuid, jsonb) TO authenticated;

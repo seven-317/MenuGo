@@ -3,11 +3,10 @@ import { redirect } from "next/navigation";
 
 import { AdminQrGeneratorClient } from "@/components/admin/AdminQrGeneratorClient";
 import { loadOwnerSession } from "@/lib/admin/load-owner-session";
-import { buildScanUrl, getAppOrigin } from "@/lib/scan/build-scan-url";
 import { createSupabaseServerClient } from "@/lib/supabase/server";
 
 export const metadata = {
-  title: "點餐 QR",
+  title: "入座 QR",
 };
 
 export default async function AdminQrPage() {
@@ -40,7 +39,7 @@ export default async function AdminQrPage() {
   const supabase = await createSupabaseServerClient();
   const { data: tableRows, error: tablesError } = await supabase
     .from("tables")
-    .select("id, restaurant_id, table_number, qr_token")
+    .select("id, restaurant_id, table_number")
     .in("restaurant_id", restaurantIds)
     .order("table_number", { ascending: true });
 
@@ -55,14 +54,11 @@ export default async function AdminQrPage() {
     );
   }
 
-  const origin = getAppOrigin();
   const tables = (tableRows ?? []).map((row) => ({
     id: row.id,
     restaurant_id: row.restaurant_id,
     restaurant_name: nameById[row.restaurant_id] ?? "—",
     table_number: row.table_number,
-    qr_token: row.qr_token,
-    scanUrl: buildScanUrl(origin, row.qr_token),
   }));
 
   return (

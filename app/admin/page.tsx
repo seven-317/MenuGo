@@ -72,7 +72,7 @@ export default async function AdminHubPage() {
             管理餐桌
           </h2>
           <p className="mt-2 text-sm leading-relaxed text-menu-muted">
-            新增或編輯桌號、重新產生掃碼權杖。
+            新增或編輯桌號；限時掃碼請用下方「入座 QR」。
           </p>
         </Link>
         <Link
@@ -97,10 +97,10 @@ export default async function AdminHubPage() {
             QR
           </span>
           <h2 className="mt-3 font-menu-display text-lg font-bold text-menu-ink group-hover:text-menu-primary">
-            生成點餐 QR
+            入座 QR（限時）
           </h2>
           <p className="mt-2 text-sm leading-relaxed text-menu-muted">
-            依餐桌產生掃碼網址與 QR 圖，給客人用手機點餐。
+            客人入座時產生新 QR，可設定用餐／點餐時間，逾時失效。
           </p>
         </Link>
         <Link

@@ -1,15 +1,15 @@
 const KEY_PREFIX = "menugo:orders:";
 
-export function orderHistoryStorageKey(tableId: string): string {
-  return `${KEY_PREFIX}${tableId}`;
+export function orderHistoryStorageKey(sessionId: string): string {
+  return `${KEY_PREFIX}${sessionId}`;
 }
 
-export function getStoredOrderIds(tableId: string): string[] {
+export function getStoredOrderIds(sessionId: string): string[] {
   if (typeof window === "undefined") {
     return [];
   }
   try {
-    const raw = localStorage.getItem(orderHistoryStorageKey(tableId));
+    const raw = localStorage.getItem(orderHistoryStorageKey(sessionId));
     if (!raw) {
       return [];
     }
@@ -23,11 +23,14 @@ export function getStoredOrderIds(tableId: string): string[] {
   }
 }
 
-export function appendStoredOrderId(tableId: string, orderId: string): void {
+export function appendStoredOrderId(
+  sessionId: string,
+  orderId: string,
+): void {
   if (typeof window === "undefined") {
     return;
   }
-  const prev = getStoredOrderIds(tableId);
+  const prev = getStoredOrderIds(sessionId);
   const next = [orderId, ...prev.filter((id) => id !== orderId)].slice(0, 50);
-  localStorage.setItem(orderHistoryStorageKey(tableId), JSON.stringify(next));
+  localStorage.setItem(orderHistoryStorageKey(sessionId), JSON.stringify(next));
 }

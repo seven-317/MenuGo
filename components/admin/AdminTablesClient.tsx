@@ -5,15 +5,12 @@ import { useRouter } from "next/navigation";
 import { useEffect, useMemo, useState } from "react";
 
 import { AdminSignOutButton } from "@/components/admin/AdminSignOutButton";
-import { randomQrToken } from "@/lib/admin/random-qr-token";
 import { createSupabaseBrowserClient } from "@/lib/supabase/client";
 
 export type AdminTableRow = {
   id: string;
   restaurant_id: string;
   table_number: string;
-  qr_token: string;
-  scan_url: string;
 };
 
 type RestaurantOption = { id: string; name: string };
@@ -118,30 +115,6 @@ export function AdminTablesClient({
     refresh();
   };
 
-  const regenerateQr = async (row: AdminTableRow) => {
-    if (
-      !window.confirm(
-        `確定要為「桌 ${row.table_number}」重新產生掃碼網址？舊 QR / 書籤將失效。`,
-      )
-    ) {
-      return;
-    }
-    const token = randomQrToken();
-    setBusyId(row.id);
-    setMessage(null);
-    const supabase = createSupabaseBrowserClient();
-    const { error } = await supabase
-      .from("tables")
-      .update({ qr_token: token })
-      .eq("id", row.id);
-    setBusyId(null);
-    if (error) {
-      setMessage(error.message);
-      return;
-    }
-    refresh();
-  };
-
   const deleteTable = async (row: AdminTableRow) => {
     if (!window.confirm(`刪除桌「${row.table_number}」？若有相關訂單則無法刪除。`)) {
       return;
@@ -179,7 +152,7 @@ export function AdminTablesClient({
             管理餐桌
           </h1>
           <p className="mt-1 text-sm text-menu-muted">
-            新增、編輯桌號或重新產生掃碼權杖（請一併到「點餐 QR」列印新圖）。
+            新增、編輯桌號。客人入座時請至「入座 QR」產生限時掃碼（可自訂用餐／點餐時間）。
           </p>
         </div>
         <div className="flex flex-wrap items-center gap-2">
@@ -199,7 +172,7 @@ export function AdminTablesClient({
             href="/admin/qr"
             className="rounded-xl border border-menu-primary/40 bg-menu-primary/10 px-4 py-2 text-sm font-semibold text-menu-primary transition-colors hover:bg-menu-primary/20"
           >
-            點餐 QR
+            入座 QR
           </Link>
           <Link
             href="/admin/orders"
@@ -275,7 +248,7 @@ export function AdminTablesClient({
             <tr>
               {restaurants.length > 1 ? <th className="px-4 py-3">餐廳</th> : null}
               <th className="px-4 py-3">桌號</th>
-              <th className="px-4 py-3">掃碼預覽</th>
+              <th className="px-4 py-3">入座 QR</th>
               <th className="px-4 py-3 text-right">操作</th>
             </tr>
           </thead>
@@ -309,15 +282,8 @@ export function AdminTablesClient({
                       row.table_number
                     )}
                   </td>
-                  <td className="px-4 py-3">
-                    <a
-                      href={row.scan_url}
-                      target="_blank"
-                      rel="noopener noreferrer"
-                      className="font-mono text-xs text-menu-primary underline-offset-2 hover:underline"
-                    >
-                      開啟點餐頁
-                    </a>
+                  <td className="px-4 py-3 text-menu-muted">
+                    請至「入座 QR」產生
                   </td>
                   <td className="px-4 py-3">
                     <div className="flex flex-wrap justify-end gap-1.5">
@@ -348,14 +314,6 @@ export function AdminTablesClient({
                             className="rounded-lg border border-menu-border px-2.5 py-1 text-xs font-medium text-menu-ink hover:bg-menu-surface disabled:opacity-50"
                           >
                             改桌號
-                          </button>
-                          <button
-                            type="button"
-                            disabled={busyId !== null}
-                            onClick={() => void regenerateQr(row)}
-                            className="rounded-lg border border-menu-border px-2.5 py-1 text-xs font-medium text-menu-ink hover:bg-menu-surface disabled:opacity-50"
-                          >
-                            換 QR
                           </button>
                           <button
                             type="button"

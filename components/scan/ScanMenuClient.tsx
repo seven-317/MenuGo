@@ -1,6 +1,6 @@
 "use client";
 
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 
 export type ScanMenuItemSerializable = {
   id: string;
@@ -12,8 +12,8 @@ export type ScanMenuItemSerializable = {
 };
 
 type ScanMenuClientProps = {
-  restaurantId: string;
-  tableId: string;
+  tableSessionId: string;
+  orderUntilIso: string;
   items: ScanMenuItemSerializable[];
   onOrderPlaced?: (orderId: string) => void;
 };
@@ -25,8 +25,8 @@ const moneyTwd = new Intl.NumberFormat("zh-TW", {
 });
 
 export function ScanMenuClient({
-  restaurantId,
-  tableId,
+  tableSessionId,
+  orderUntilIso,
   items,
   onOrderPlaced,
 }: ScanMenuClientProps) {
@@ -34,6 +34,17 @@ export function ScanMenuClient({
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [successOrderId, setSuccessOrderId] = useState<string | null>(null);
+  const [tick, setTick] = useState<number | null>(null);
+
+  useEffect(() => {
+    setTick(Date.now());
+    const id = window.setInterval(() => setTick(Date.now()), 1000);
+    return () => window.clearInterval(id);
+  }, []);
+
+  const orderDeadline = new Date(orderUntilIso).getTime();
+  const hasClock = tick != null;
+  const canOrder = !hasClock || tick < orderDeadline;
 
   const itemById = useMemo(
     () => Object.fromEntries(items.map((i) => [i.id, i])),
@@ -59,6 +70,9 @@ export function ScanMenuClient({
   );
 
   const bump = (menuId: string, delta: number) => {
+    if (!canOrder) {
+      return;
+    }
     setError(null);
     setSuccessOrderId(null);
     setQuantities((prev) => {
@@ -75,6 +89,10 @@ export function ScanMenuClient({
   };
 
   const handleSubmit = async () => {
+    if (!canOrder) {
+      setError("點餐時間已截止");
+      return;
+    }
     setError(null);
     setSuccessOrderId(null);
     const cart = cartLines.map((l) => ({
@@ -92,8 +110,7 @@ export function ScanMenuClient({
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
-          restaurant_id: restaurantId,
-          table_id: tableId,
+          table_session_id: tableSessionId,
           cart,
         }),
       });
@@ -125,6 +142,11 @@ export function ScanMenuClient({
 
   return (
     <>
+      {!canOrder ? (
+        <p className="mb-4 rounded-2xl border border-amber-200 bg-amber-50 px-4 py-3 text-sm text-amber-900">
+          點餐時間已結束，無法再送出新訂單。
+        </p>
+      ) : null}
       <ul className="space-y-4">
         {items.map((item, index) => {
           const q = quantities[item.id] ?? 0;
@@ -177,7 +199,7 @@ export function ScanMenuClient({
                   <button
                     type="button"
                     aria-label={`減少 ${item.name}`}
-                    disabled={q === 0 || submitting}
+                    disabled={q === 0 || submitting || !canOrder}
                     onClick={() => bump(item.id, -1)}
                     className="flex h-10 w-10 items-center justify-center rounded-xl border border-menu-border bg-menu-bg text-lg font-semibold text-menu-ink transition-colors hover:bg-menu-surface disabled:cursor-not-allowed disabled:opacity-40"
                   >
@@ -189,7 +211,7 @@ export function ScanMenuClient({
                   <button
                     type="button"
                     aria-label={`增加 ${item.name}`}
-                    disabled={submitting}
+                    disabled={submitting || !canOrder}
                     onClick={() => bump(item.id, 1)}
                     className="flex h-10 w-10 items-center justify-center rounded-xl bg-menu-cta text-lg font-semibold text-white shadow-sm transition-all hover:bg-menu-cta-hover disabled:opacity-60"
                   >
@@ -228,7 +250,7 @@ export function ScanMenuClient({
             </div>
             <button
               type="button"
-              disabled={submitting || cartLines.length === 0}
+              disabled={submitting || cartLines.length === 0 || !canOrder}
               onClick={() => void handleSubmit()}
               className="inline-flex h-12 min-h-[44px] w-full cursor-pointer items-center justify-center rounded-2xl bg-menu-cta px-6 text-sm font-semibold text-white shadow-md outline-none transition-all duration-300 hover:bg-menu-cta-hover hover:shadow-lg disabled:cursor-not-allowed disabled:bg-menu-muted/40 disabled:shadow-none sm:w-auto"
             >

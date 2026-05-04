@@ -35,7 +35,7 @@ function customerStatusLabel(status: string): string {
 }
 
 type ScanOrderHistoryProps = {
-  tableId: string;
+  tableSessionId: string;
   qrToken: string;
   scanSig: string;
   enabled: boolean;
@@ -50,7 +50,7 @@ type HistoryOrder = {
 };
 
 export function ScanOrderHistory({
-  tableId,
+  tableSessionId,
   qrToken,
   scanSig,
   enabled,
@@ -60,7 +60,7 @@ export function ScanOrderHistory({
   const [error, setError] = useState<string | null>(null);
 
   const refresh = useCallback(async () => {
-    const ids = getStoredOrderIds(tableId);
+    const ids = getStoredOrderIds(tableSessionId);
     if (ids.length === 0) {
       setOrders([]);
       setError(null);
@@ -97,7 +97,7 @@ export function ScanOrderHistory({
     } finally {
       setLoading(false);
     }
-  }, [tableId, qrToken, scanSig]);
+  }, [tableSessionId, qrToken, scanSig]);
 
   useEffect(() => {
     if (!enabled) {
@@ -113,7 +113,7 @@ export function ScanOrderHistory({
     };
   }, [enabled, refresh]);
 
-  const storageEmpty = getStoredOrderIds(tableId).length === 0;
+  const storageEmpty = getStoredOrderIds(tableSessionId).length === 0;
 
   return (
     <section className="menu-reveal rounded-3xl border border-menu-border bg-menu-card p-5 shadow-sm">

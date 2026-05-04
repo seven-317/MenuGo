@@ -130,6 +130,12 @@ async function ensureSchemaAndRpc(pgUrl) {
 
   await runSqlFilePg(
     pgUrl,
+    "sql/migrate_table_sessions.sql",
+    path.join(root, "sql", "migrate_table_sessions.sql"),
+  );
+
+  await runSqlFilePg(
+    pgUrl,
     "sql/rpc_create_customer_order.sql",
     path.join(root, "sql", "rpc_create_customer_order.sql"),
   );
@@ -211,6 +217,14 @@ async function seedDemo(supabase, ownerId) {
       throw new Error(`清除示範訂單失敗：${ordDelErr.message}`);
     }
 
+    const { error: sessDelErr } = await supabase
+      .from("table_sessions")
+      .delete()
+      .eq("restaurant_id", restaurantId);
+    if (sessDelErr) {
+      throw new Error(`清除示範入座節次失敗：${sessDelErr.message}`);
+    }
+
     const { error: tblDelErr } = await supabase
       .from("tables")
       .delete()
@@ -244,12 +258,27 @@ async function seedDemo(supabase, ownerId) {
     throw new Error(`建立餐廳失敗：${insRest?.message ?? "無資料"}`);
   }
 
-  const { error: tblErr } = await supabase.from("tables").insert({
+  const { data: tableRow, error: tblErr } = await supabase
+    .from("tables")
+    .insert({
+      restaurant_id: rest.id,
+      table_number: "A1",
+    })
+    .select("id")
+    .single();
+
+  if (tblErr || !tableRow) {
+    throw new Error(`建立桌次失敗：${tblErr?.message ?? "無資料"}`);
+  }
+
+  const { error: sessErr } = await supabase.from("table_sessions").insert({
+    table_id: tableRow.id,
     restaurant_id: rest.id,
-    table_number: "A1",
     qr_token: qrToken,
+    dining_duration_minutes: 120,
+    order_window_minutes: 90,
   });
-  if (tblErr) throw new Error(`建立桌次失敗：${tblErr.message}`);
+  if (sessErr) throw new Error(`建立示範入座節次失敗：${sessErr.message}`);
 
   const menuRows = [
     {

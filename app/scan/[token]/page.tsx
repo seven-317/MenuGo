@@ -2,6 +2,7 @@ import type { Metadata } from "next";
 import { notFound } from "next/navigation";
 
 import { ScanExperienceClient } from "@/components/scan/ScanExperienceClient";
+import { formatSessionDeadlineLabel } from "@/lib/scan/format-session-label";
 import {
   getScanHmacSecret,
   verifyScanTokenSignature,
@@ -73,7 +74,10 @@ export default async function ScanPage({ params, searchParams }: ScanPageProps) 
   if (
     tableRow == null ||
     typeof tableRow !== "object" ||
-    !("id" in tableRow)
+    !("id" in tableRow) ||
+    !("session_id" in tableRow) ||
+    !("order_until" in tableRow) ||
+    !("session_until" in tableRow)
   ) {
     notFound();
   }
@@ -82,6 +86,9 @@ export default async function ScanPage({ params, searchParams }: ScanPageProps) 
     id: string;
     restaurant_id: string;
     table_number: string;
+    session_id: string;
+    order_until: string;
+    session_until: string;
   };
 
   const { data: restaurant, error: restaurantError } = await supabase
@@ -114,6 +121,9 @@ export default async function ScanPage({ params, searchParams }: ScanPageProps) 
     description: m.description,
     image_url: m.image_url,
   }));
+
+  const orderUntilLabel = formatSessionDeadlineLabel(table.order_until);
+  const sessionUntilLabel = formatSessionDeadlineLabel(table.session_until);
 
   return (
     <div className="relative min-h-full bg-menu-bg text-menu-ink">
@@ -150,11 +160,15 @@ export default async function ScanPage({ params, searchParams }: ScanPageProps) 
       <main className="relative z-10 mx-auto max-w-2xl px-4 py-8 sm:px-6 sm:py-10">
         <ScanExperienceClient
           restaurantId={restaurant.id}
-          tableId={table.id}
+          tableSessionId={table.session_id}
           restaurantName={restaurant.name}
           tableNumber={table.table_number}
           qrToken={token}
           scanSig={sigDecoded ?? ""}
+          orderUntilIso={table.order_until}
+          sessionUntilIso={table.session_until}
+          orderUntilLabel={orderUntilLabel}
+          sessionUntilLabel={sessionUntilLabel}
           items={menuForClient}
         />
       </main>

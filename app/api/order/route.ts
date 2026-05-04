@@ -9,8 +9,7 @@ type CartItemPayload = {
 };
 
 type CreateOrderBody = {
-  restaurant_id?: unknown;
-  table_id?: unknown;
+  table_session_id?: unknown;
   cart?: unknown;
 };
 
@@ -63,15 +62,13 @@ export async function POST(request: Request) {
     return jsonError(400, "無法解析 JSON 內容");
   }
 
-  const restaurantId =
-    typeof body.restaurant_id === "string" ? body.restaurant_id.trim() : "";
-  const tableId = typeof body.table_id === "string" ? body.table_id.trim() : "";
+  const tableSessionId =
+    typeof body.table_session_id === "string"
+      ? body.table_session_id.trim()
+      : "";
 
-  if (!restaurantId || !isUuid(restaurantId)) {
-    return jsonError(400, "restaurant_id 為必填且須為有效的 UUID");
-  }
-  if (!tableId || !isUuid(tableId)) {
-    return jsonError(400, "table_id 為必填且須為有效的 UUID");
+  if (!tableSessionId || !isUuid(tableSessionId)) {
+    return jsonError(400, "table_session_id 為必填且須為有效的 UUID");
   }
 
   let cartPayload: { menu_id: string; quantity: number; notes?: string }[];
@@ -101,8 +98,7 @@ export async function POST(request: Request) {
   }
 
   const { data, error } = await supabase.rpc("create_customer_order", {
-    p_restaurant_id: restaurantId,
-    p_table_id: tableId,
+    p_table_session_id: tableSessionId,
     p_items: cartPayload,
   });
 
@@ -112,7 +108,7 @@ export async function POST(request: Request) {
 
     if (
       code === "P0001" ||
-      /cart must|table does not|menu not found|invalid menu_id|invalid quantity|quantity must/i.test(
+      /cart must|table session|session expired|ordering window|menu not found|invalid menu_id|invalid quantity|quantity must/i.test(
         msg,
       )
     ) {

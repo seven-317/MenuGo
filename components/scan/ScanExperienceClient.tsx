@@ -1,7 +1,6 @@
 "use client";
 
-import Link from "next/link";
-import { useCallback, useState } from "react";
+import { useCallback, useEffect, useState } from "react";
 
 import { appendStoredOrderId } from "@/lib/scan/order-history-storage";
 
@@ -13,11 +12,15 @@ import { ScanOrderHistory } from "@/components/scan/ScanOrderHistory";
 
 export type ScanExperienceClientProps = {
   restaurantId: string;
-  tableId: string;
+  tableSessionId: string;
   restaurantName: string;
   tableNumber: string;
   qrToken: string;
   scanSig: string;
+  orderUntilIso: string;
+  sessionUntilIso: string;
+  orderUntilLabel: string;
+  sessionUntilLabel: string;
   items: ScanMenuItemSerializable[];
 };
 
@@ -26,22 +29,113 @@ type TabId = "menu" | "info";
 const tabBtn =
   "flex-1 rounded-xl px-3 py-2.5 text-sm font-semibold outline-none transition-all focus-visible:ring-2 focus-visible:ring-menu-cta focus-visible:ring-offset-2 focus-visible:ring-offset-menu-bg";
 
+function formatRemaining(ms: number): string {
+  if (ms <= 0) {
+    return "已結束";
+  }
+  const totalSec = Math.floor(ms / 1000);
+  const m = Math.floor(totalSec / 60);
+  const s = totalSec % 60;
+  const h = Math.floor(m / 60);
+  const mm = m % 60;
+  if (h > 0) {
+    return `${h} 小時 ${mm} 分`;
+  }
+  if (m > 0) {
+    return `${m} 分 ${s} 秒`;
+  }
+  return `${s} 秒`;
+}
+
+function ScanSessionNotice({
+  orderUntilIso,
+  sessionUntilIso,
+  orderUntilLabel,
+  sessionUntilLabel,
+}: {
+  orderUntilIso: string;
+  sessionUntilIso: string;
+  orderUntilLabel: string;
+  sessionUntilLabel: string;
+}) {
+  const [tick, setTick] = useState<number | null>(null);
+
+  useEffect(() => {
+    setTick(Date.now());
+    const id = window.setInterval(() => setTick(Date.now()), 1000);
+    return () => window.clearInterval(id);
+  }, []);
+
+  const orderEnd = new Date(orderUntilIso).getTime();
+  const sessionEnd = new Date(sessionUntilIso).getTime();
+  const hasClock = tick != null;
+  const canOrder = hasClock && tick < orderEnd;
+  const sessionLive = hasClock && tick < sessionEnd;
+
+  return (
+    <div className="menu-reveal mt-5 rounded-2xl border border-menu-border bg-menu-card/90 px-4 py-3 text-sm leading-relaxed shadow-sm">
+      <p className="font-medium text-menu-ink">本次入座 · 限時 QR</p>
+      <ul className="mt-2 space-y-1 text-menu-muted">
+        <li>
+          可點餐至{" "}
+          <span className="font-semibold text-menu-ink">{orderUntilLabel}</span>
+          {hasClock ? (
+            canOrder ? (
+              <span className="ms-2 text-menu-primary">
+                （餘 {formatRemaining(orderEnd - tick)}）
+              </span>
+            ) : (
+              <span className="ms-2 font-medium text-amber-800">
+                （已截止點餐）
+              </span>
+            )
+          ) : null}
+        </li>
+        <li>
+          本 QR 有效至{" "}
+          <span className="font-semibold text-menu-ink">
+            {sessionUntilLabel}
+          </span>
+          {hasClock ? (
+            sessionLive ? (
+              <span className="ms-2 text-menu-muted">
+                （餘 {formatRemaining(sessionEnd - tick)}）
+              </span>
+            ) : (
+              <span className="ms-2 font-medium text-red-800">（已失效）</span>
+            )
+          ) : null}
+        </li>
+      </ul>
+      {hasClock && !canOrder && sessionLive ? (
+        <p className="mt-2 text-xs text-amber-900">
+          點餐時間已結束，您仍可在此頁查看本場次資訊與訂單紀錄。
+        </p>
+      ) : null}
+    </div>
+  );
+}
+
 export function ScanExperienceClient({
   restaurantId,
-  tableId,
+  tableSessionId,
   restaurantName,
   tableNumber,
   qrToken,
   scanSig,
+  orderUntilIso,
+  sessionUntilIso,
+  orderUntilLabel,
+  sessionUntilLabel,
   items,
 }: ScanExperienceClientProps) {
   const [tab, setTab] = useState<TabId>("menu");
 
   const handleOrderPlaced = useCallback(
     (orderId: string) => {
-      appendStoredOrderId(tableId, orderId);
+      appendStoredOrderId(tableSessionId, orderId);
     },
-    [tableId],
+    [tableSessionId],
   );
 
   return (
@@ -80,6 +174,13 @@ export function ScanExperienceClient({
         </button>
       </div>
 
+      <ScanSessionNotice
+        orderUntilIso={orderUntilIso}
+        sessionUntilIso={sessionUntilIso}
+        orderUntilLabel={orderUntilLabel}
+        sessionUntilLabel={sessionUntilLabel}
+      />
+
       <div
         className={`mt-6 ${tab === "menu" && items.length > 0 ? "pb-40 sm:pb-10" : ""}`}
         role="tabpanel"
@@ -93,8 +194,8 @@ export function ScanExperienceClient({
             </p>
           ) : (
             <ScanMenuClient
-              restaurantId={restaurantId}
-              tableId={tableId}
+              tableSessionId={tableSessionId}
+              orderUntilIso={orderUntilIso}
               items={items}
               onOrderPlaced={handleOrderPlaced}
             />
@@ -126,7 +227,7 @@ export function ScanExperienceClient({
             </section>
 
             <ScanOrderHistory
-              tableId={tableId}
+              tableSessionId={tableSessionId}
               qrToken={qrToken}
               scanSig={scanSig}
               enabled={tab === "info"}
