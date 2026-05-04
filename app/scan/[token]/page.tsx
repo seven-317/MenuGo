@@ -1,7 +1,7 @@
 import type { Metadata } from "next";
-import Link from "next/link";
 import { notFound } from "next/navigation";
 
+import { ScanExperienceClient } from "@/components/scan/ScanExperienceClient";
 import {
   getScanHmacSecret,
   verifyScanTokenSignature,
@@ -14,12 +14,6 @@ type ScanPageProps = {
 };
 
 const TOKEN_RE = /^[a-zA-Z0-9_-]{16,128}$/;
-
-const moneyTwd = new Intl.NumberFormat("zh-TW", {
-  style: "currency",
-  currency: "TWD",
-  minimumFractionDigits: 0,
-});
 
 function firstString(
   value: string | string[] | undefined,
@@ -95,6 +89,14 @@ export default async function ScanPage({ params, searchParams }: ScanPageProps) 
   }
 
   const items = menuRows.filter((m) => m.status === "available");
+  const menuForClient = items.map((m) => ({
+    id: m.id,
+    name: m.name,
+    price: Number(m.price),
+    category: m.category,
+    description: m.description,
+    image_url: m.image_url,
+  }));
 
   return (
     <div className="relative min-h-full bg-menu-bg text-menu-ink">
@@ -124,81 +126,20 @@ export default async function ScanPage({ params, searchParams }: ScanPageProps) 
               桌 {table.table_number}
             </span>
           </div>
-          <p className="text-sm text-menu-muted">線上瀏覽菜單 · 請向店員確認點餐方式</p>
+          <p className="text-sm text-menu-muted">線上瀏覽菜單</p>
         </div>
       </header>
 
       <main className="relative z-10 mx-auto max-w-2xl px-4 py-8 sm:px-6 sm:py-10">
-        {items.length === 0 ? (
-          <p
-            className="menu-reveal rounded-3xl border-2 border-dashed border-menu-border bg-menu-card px-6 py-14 text-center text-sm leading-relaxed text-menu-muted"
-            style={{ animationDelay: "0.12s" }}
-          >
-            目前沒有可點餐的品項。
-          </p>
-        ) : (
-          <ul className="space-y-4">
-            {items.map((item, index) => (
-              <li
-                key={item.id}
-                className="menu-reveal flex gap-4 rounded-3xl border border-menu-border bg-menu-card p-4 shadow-sm transition-all duration-300 motion-safe:hover:-translate-y-0.5 hover:shadow-md"
-                style={{
-                  animationDelay: `${0.1 + Math.min(index, 10) * 0.055}s`,
-                }}
-              >
-                <div className="relative h-24 w-24 shrink-0 overflow-hidden rounded-2xl bg-menu-bg ring-1 ring-menu-border">
-                  {item.image_url ? (
-                    // eslint-disable-next-line @next/next/no-img-element -- 圖片來自任意 CDN
-                    <img
-                      src={item.image_url}
-                      alt={item.name}
-                      className="h-full w-full object-cover"
-                    />
-                  ) : (
-                    <div
-                      className="flex h-full items-center justify-center text-center text-xs font-medium text-menu-muted"
-                      aria-hidden
-                    >
-                      無圖
-                    </div>
-                  )}
-                </div>
-                <div className="min-w-0 flex-1 py-0.5">
-                  <div className="flex flex-wrap items-start justify-between gap-2 gap-y-1">
-                    <h2 className="font-menu-display text-lg font-bold text-menu-ink">
-                      {item.name}
-                    </h2>
-                    <p className="shrink-0 text-base font-bold text-menu-cta">
-                      {moneyTwd.format(Number(item.price))}
-                    </p>
-                  </div>
-                  {item.category ? (
-                    <p className="mt-1 text-xs font-semibold uppercase tracking-wide text-menu-primary">
-                      {item.category}
-                    </p>
-                  ) : null}
-                  {item.description ? (
-                    <p className="mt-2 text-sm leading-relaxed text-menu-muted">
-                      {item.description}
-                    </p>
-                  ) : null}
-                </div>
-              </li>
-            ))}
-          </ul>
-        )}
-
-        <p
-          className="menu-reveal mt-10 text-center"
-          style={{ animationDelay: "0.35s" }}
-        >
-          <Link
-            href="/"
-            className="inline-flex cursor-pointer items-center justify-center rounded-2xl border-2 border-menu-primary bg-transparent px-5 py-3 text-sm font-semibold text-menu-primary outline-none transition-all duration-300 hover:bg-menu-surface motion-safe:hover:-translate-y-0.5 motion-safe:hover:shadow-md focus-visible:ring-2 focus-visible:ring-menu-cta focus-visible:ring-offset-2 focus-visible:ring-offset-menu-bg motion-safe:active:scale-[0.98]"
-          >
-            回首頁
-          </Link>
-        </p>
+        <ScanExperienceClient
+          restaurantId={restaurant.id}
+          tableId={table.id}
+          restaurantName={restaurant.name}
+          tableNumber={table.table_number}
+          qrToken={token}
+          scanSig={sigDecoded ?? ""}
+          items={menuForClient}
+        />
       </main>
     </div>
   );

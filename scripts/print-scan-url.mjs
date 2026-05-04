@@ -1,9 +1,4 @@
 #!/usr/bin/env node
-/**
- * 印出正確掃碼網址（有設 SCAN_HMAC_SECRET 時自動加 ?sig=）
- * 用法：npm run scan:url
- *      npm run scan:url -- my_token
- */
 import { createHmac } from "node:crypto";
 import dotenv from "dotenv";
 import path from "node:path";

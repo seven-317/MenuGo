@@ -1,6 +1,5 @@
 @import "tailwindcss";
 
-/* MenuGo — 鼠尾草綠 × 奶油底 × 銅橙點綴（較柔、偏餐酒館質感） */
 :root {
   --menu-bg: #f4f2ed;
   --menu-ink: #1c1917;
@@ -70,7 +69,6 @@
   will-change: transform;
 }
 
-/* 第二顆光球錯開節奏 — 獨立 keyframe 延遲用 transform 疊加不易，改用反向 phase */
 @keyframes menu-float-blob-alt {
   0%,
   100% {

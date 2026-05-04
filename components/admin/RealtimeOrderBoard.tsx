@@ -5,7 +5,6 @@ import { useCallback, useEffect, useState } from "react";
 import { createSupabaseBrowserClient } from "@/lib/supabase/client";
 import type { RealtimePostgresInsertPayload } from "@supabase/supabase-js";
 
-/** 與 public.orders 對齊的即時 payload（欄位以 Supabase Realtime 為準） */
 type OrderRow = {
   id: string;
   table_id: string;
@@ -23,8 +22,14 @@ export type OrderListItem = {
   created_at: string;
 };
 
+type OrderLineDetail = {
+  quantity: number;
+  notes: string | null;
+  menuName: string;
+  lineTotal: number;
+};
+
 type RealtimeOrderBoardProps = {
-  /** 目前後台檢視的餐廳 ID（用於初始載入與 Realtime filter） */
   restaurantId: string;
 };
 
@@ -45,27 +50,50 @@ function formatCreatedAt(iso: string) {
   }
 }
 
-/**
- * MenuGo 餐廳後台：即時接單列表（Supabase Realtime `orders` INSERT）
- *
- * 使用前提（Supabase Dashboard）：
- * - Database → Replication → 對 `public.orders` 開啟 Realtime
- * - 管理員已透過 Supabase Auth 登入（RLS 僅允許 owner 讀取自家訂單）
- *
- * 用法範例：
- * ```tsx
- * <RealtimeOrderBoard restaurantId={restaurant.id} />
- * ```
- */
+function statusBadgeClass(status: string): string {
+  switch (status) {
+    case "pending":
+      return "bg-amber-100 text-amber-900";
+    case "confirmed":
+      return "bg-sky-100 text-sky-900";
+    case "completed":
+      return "bg-zinc-200 text-zinc-800";
+    default:
+      return "bg-violet-100 text-violet-900";
+  }
+}
+
+function statusLabel(status: string): string {
+  switch (status) {
+    case "pending":
+      return "待接單";
+    case "confirmed":
+      return "製作中";
+    case "completed":
+      return "已完成";
+    default:
+      return status;
+  }
+}
+
 export function RealtimeOrderBoard({ restaurantId }: RealtimeOrderBoardProps) {
   const [orders, setOrders] = useState<OrderListItem[]>([]);
   const [loadError, setLoadError] = useState<string | null>(null);
   const [acceptingId, setAcceptingId] = useState<string | null>(null);
+  const [completingId, setCompletingId] = useState<string | null>(null);
+  const [expandedId, setExpandedId] = useState<string | null>(null);
+  const [linesByOrder, setLinesByOrder] = useState<
+    Record<string, OrderLineDetail[]>
+  >({});
+  const [loadingLinesId, setLoadingLinesId] = useState<string | null>(null);
 
   const mergeTableNumbers = useCallback(
     async (
       supabase: ReturnType<typeof createSupabaseBrowserClient>,
-      rows: Pick<OrderRow, "id" | "table_id" | "status" | "total_price" | "created_at">[],
+      rows: Pick<
+        OrderRow,
+        "id" | "table_id" | "status" | "total_price" | "created_at"
+      >[],
     ): Promise<OrderListItem[]> => {
       const tableIds = [...new Set(rows.map((r) => r.table_id))];
       let tableMap: Record<string, string> = {};
@@ -104,7 +132,7 @@ export function RealtimeOrderBoard({ restaurantId }: RealtimeOrderBoardProps) {
       .select("id, table_id, status, total_price, created_at")
       .eq("restaurant_id", restaurantId)
       .order("created_at", { ascending: false })
-      .limit(100);
+      .limit(150);
 
     if (ordersError) {
       setLoadError(ordersError.message);
@@ -112,10 +140,7 @@ export function RealtimeOrderBoard({ restaurantId }: RealtimeOrderBoardProps) {
     }
 
     try {
-      const merged = await mergeTableNumbers(
-        supabase,
-        orderRows ?? [],
-      );
+      const merged = await mergeTableNumbers(supabase, orderRows ?? []);
       setOrders(merged);
     } catch (e) {
       setLoadError(e instanceof Error ? e.message : "載入桌號失敗");
@@ -123,14 +148,17 @@ export function RealtimeOrderBoard({ restaurantId }: RealtimeOrderBoardProps) {
   }, [mergeTableNumbers, restaurantId]);
 
   useEffect(() => {
-    void loadOrders();
+    const id = window.setTimeout(() => {
+      void loadOrders();
+    }, 0);
+    return () => window.clearTimeout(id);
   }, [loadOrders]);
 
   useEffect(() => {
     const supabase = createSupabaseBrowserClient();
 
     const channel = supabase
-      .channel(`orders-insert:${restaurantId}`)
+      .channel(`orders-board:${restaurantId}`)
       .on<OrderRow>(
         "postgres_changes",
         {
@@ -166,12 +194,92 @@ export function RealtimeOrderBoard({ restaurantId }: RealtimeOrderBoardProps) {
           });
         },
       )
+      .on<OrderRow>(
+        "postgres_changes",
+        {
+          event: "UPDATE",
+          schema: "public",
+          table: "orders",
+          filter: `restaurant_id=eq.${restaurantId}`,
+        },
+        (payload: { new: Record<string, unknown> }) => {
+          const row = payload.new as OrderRow;
+          if (!row?.id) {
+            return;
+          }
+          setOrders((prev) => {
+            const ix = prev.findIndex((o) => o.id === row.id);
+            if (ix === -1) {
+              return prev;
+            }
+            const copy = [...prev];
+            copy[ix] = {
+              ...copy[ix],
+              status: row.status,
+              total_price: Number(row.total_price),
+            };
+            return copy;
+          });
+        },
+      )
       .subscribe();
 
     return () => {
       void supabase.removeChannel(channel);
     };
   }, [restaurantId]);
+
+  const loadOrderLines = useCallback(
+    async (orderId: string) => {
+      if (linesByOrder[orderId]) {
+        return;
+      }
+      setLoadingLinesId(orderId);
+      const supabase = createSupabaseBrowserClient();
+      const { data, error } = await supabase
+        .from("order_items")
+        .select("quantity, notes, menus(name, price)")
+        .eq("order_id", orderId);
+
+      if (error) {
+        setLoadError(error.message);
+        setLoadingLinesId(null);
+        return;
+      }
+
+      const parsed: OrderLineDetail[] = (data ?? []).map((row) => {
+        const embed = row.menus as
+          | { name: string; price: string | number }
+          | { name: string; price: string | number }[]
+          | null;
+
+        const menu = Array.isArray(embed) ? embed[0] : embed;
+        const price = menu ? Number(menu.price) : 0;
+        const name = menu?.name ?? "（品項）";
+        const qty = Number(row.quantity);
+
+        return {
+          quantity: qty,
+          notes: row.notes ?? null,
+          menuName: name,
+          lineTotal: price * qty,
+        };
+      });
+
+      setLinesByOrder((prev) => ({ ...prev, [orderId]: parsed }));
+      setLoadingLinesId(null);
+    },
+    [linesByOrder],
+  );
+
+  const toggleExpanded = (orderId: string) => {
+    if (expandedId === orderId) {
+      setExpandedId(null);
+      return;
+    }
+    setExpandedId(orderId);
+    void loadOrderLines(orderId);
+  };
 
   const handleAccept = async (orderId: string) => {
     setAcceptingId(orderId);
@@ -199,10 +307,171 @@ export function RealtimeOrderBoard({ restaurantId }: RealtimeOrderBoardProps) {
     }
   };
 
+  const handleComplete = async (orderId: string) => {
+    setCompletingId(orderId);
+    try {
+      const res = await fetch(`/api/orders/${orderId}/complete`, {
+        method: "POST",
+        credentials: "same-origin",
+      });
+      const body = (await res.json().catch(() => ({}))) as {
+        error?: string;
+      };
+
+      if (!res.ok) {
+        setLoadError(body.error ?? `完成訂單失敗（${res.status}）`);
+        return;
+      }
+
+      setOrders((prev) =>
+        prev.map((o) =>
+          o.id === orderId ? { ...o, status: "completed" } : o,
+        ),
+      );
+    } finally {
+      setCompletingId(null);
+    }
+  };
+
+  const known = new Set(["pending", "confirmed", "completed"]);
+  const newOrders = orders.filter(
+    (o) => o.status === "pending" || !known.has(o.status),
+  );
+  const making = orders.filter((o) => o.status === "confirmed");
+  const done = orders.filter((o) => o.status === "completed");
+
+  const renderCard = (order: OrderListItem, zone: "new" | "making" | "done") => {
+    const isPending = order.status === "pending";
+    const isConfirmed = order.status === "confirmed";
+    const busyAccept = acceptingId === order.id;
+    const busyComplete = completingId === order.id;
+
+    return (
+      <li
+        key={`${zone}-${order.id}`}
+        className="flex flex-col gap-3 rounded-xl border border-zinc-200 bg-white p-4 shadow-sm"
+      >
+        <div className="space-y-1">
+          <div className="flex flex-wrap items-baseline gap-2">
+            <span className="text-xs font-medium uppercase tracking-wide text-zinc-500">
+              桌號
+            </span>
+            <span className="text-xl font-semibold text-zinc-900">
+              {order.table_number}
+            </span>
+            <span
+              className={`ml-auto rounded-full px-2 py-0.5 text-xs font-medium ${statusBadgeClass(order.status)}`}
+            >
+              {statusLabel(order.status)}
+            </span>
+          </div>
+          <p className="text-sm text-zinc-600">
+            金額{" "}
+            <span className="font-semibold text-zinc-900">
+              {moneyTwd.format(order.total_price)}
+            </span>
+          </p>
+          <p className="text-xs text-zinc-500">
+            成立時間 {formatCreatedAt(order.created_at)}
+          </p>
+          <button
+            type="button"
+            onClick={() => toggleExpanded(order.id)}
+            className="mt-2 text-left text-xs font-semibold text-zinc-700 underline-offset-2 hover:underline"
+          >
+            {expandedId === order.id ? "隱藏明細" : "查看明細"}
+          </button>
+          {expandedId === order.id ? (
+            <div className="mt-2 rounded-lg border border-zinc-100 bg-zinc-50 px-3 py-2 text-sm">
+              {loadingLinesId === order.id ? (
+                <p className="text-zinc-500">載入明細…</p>
+              ) : (linesByOrder[order.id] ?? []).length === 0 ? (
+                <p className="text-zinc-500">無明細</p>
+              ) : (
+                <ul className="space-y-1.5">
+                  {(linesByOrder[order.id] ?? []).map((line, i) => (
+                    <li
+                      key={`${order.id}-line-${i}`}
+                      className="flex flex-wrap justify-between gap-2 text-zinc-800"
+                    >
+                      <span>
+                        {line.menuName}{" "}
+                        <span className="text-zinc-500">× {line.quantity}</span>
+                        {line.notes ? (
+                          <span className="block text-xs text-zinc-500">
+                            備註：{line.notes}
+                          </span>
+                        ) : null}
+                      </span>
+                      <span className="shrink-0 font-medium tabular-nums">
+                        {moneyTwd.format(line.lineTotal)}
+                      </span>
+                    </li>
+                  ))}
+                </ul>
+              )}
+            </div>
+          ) : null}
+        </div>
+
+        {zone !== "done" ? (
+          <div className="flex flex-wrap gap-2 border-t border-zinc-100 pt-3">
+            {zone === "new" && isPending ? (
+              <button
+                type="button"
+                disabled={busyAccept}
+                onClick={() => void handleAccept(order.id)}
+                className="rounded-lg bg-zinc-900 px-4 py-2 text-sm font-medium text-white shadow-sm disabled:cursor-not-allowed disabled:bg-zinc-300"
+              >
+                {busyAccept ? "處理中…" : "接單"}
+              </button>
+            ) : null}
+            {zone === "new" && !isPending && !isConfirmed ? (
+              <p className="text-xs text-zinc-500">請於後台檢查非預期狀態</p>
+            ) : null}
+            {zone === "making" && isConfirmed ? (
+              <button
+                type="button"
+                disabled={busyComplete}
+                onClick={() => void handleComplete(order.id)}
+                className="rounded-lg bg-emerald-700 px-4 py-2 text-sm font-medium text-white shadow-sm hover:bg-emerald-800 disabled:cursor-not-allowed disabled:bg-emerald-300"
+              >
+                {busyComplete ? "處理中…" : "完成訂單"}
+              </button>
+            ) : null}
+          </div>
+        ) : null}
+      </li>
+    );
+  };
+
+  const column = (
+    title: string,
+    subtitle: string,
+    list: OrderListItem[],
+    zone: "new" | "making" | "done",
+  ) => (
+    <section className="flex min-h-0 flex-col gap-3">
+      <div>
+        <h3 className="text-base font-bold text-zinc-900">{title}</h3>
+        <p className="text-xs text-zinc-500">{subtitle}</p>
+      </div>
+      {list.length === 0 ? (
+        <p className="rounded-xl border border-dashed border-zinc-200 bg-zinc-50 px-3 py-6 text-center text-xs text-zinc-500 sm:text-sm">
+          無
+        </p>
+      ) : (
+        <ul className="max-h-[70vh] space-y-3 overflow-y-auto pr-1 sm:max-h-none">
+          {list.map((o) => renderCard(o, zone))}
+        </ul>
+      )}
+    </section>
+  );
+
   return (
     <div className="space-y-4">
-      <div className="flex items-center justify-between gap-3">
-        <h2 className="text-lg font-semibold text-zinc-900">即時訂單</h2>
+      <div className="flex flex-wrap items-center justify-between gap-3">
+        <h2 className="text-lg font-semibold text-zinc-900">訂單看板</h2>
         <button
           type="button"
           onClick={() => void loadOrders()}
@@ -218,65 +487,16 @@ export function RealtimeOrderBoard({ restaurantId }: RealtimeOrderBoardProps) {
         </p>
       ) : null}
 
-      {orders.length === 0 ? (
-        <p className="rounded-xl border border-dashed border-zinc-200 bg-zinc-50 px-4 py-8 text-center text-sm text-zinc-500">
-          目前沒有訂單。新訂單進線後會自動出現在這裡。
-        </p>
-      ) : (
-        <ul className="space-y-3">
-          {orders.map((order) => {
-            const isPending = order.status === "pending";
-            const busy = acceptingId === order.id;
-
-            return (
-              <li
-                key={order.id}
-                className="flex flex-col gap-3 rounded-xl border border-zinc-200 bg-white p-4 shadow-sm sm:flex-row sm:items-center sm:justify-between"
-              >
-                <div className="space-y-1">
-                  <div className="flex flex-wrap items-baseline gap-2">
-                    <span className="text-xs font-medium uppercase tracking-wide text-zinc-500">
-                      桌號
-                    </span>
-                    <span className="text-xl font-semibold text-zinc-900">
-                      {order.table_number}
-                    </span>
-                    <span
-                      className={`ml-auto rounded-full px-2 py-0.5 text-xs font-medium ${
-                        isPending
-                          ? "bg-amber-100 text-amber-900"
-                          : "bg-emerald-100 text-emerald-900"
-                      }`}
-                    >
-                      {order.status}
-                    </span>
-                  </div>
-                  <p className="text-sm text-zinc-600">
-                    金額{" "}
-                    <span className="font-semibold text-zinc-900">
-                      {moneyTwd.format(order.total_price)}
-                    </span>
-                  </p>
-                  <p className="text-xs text-zinc-500">
-                    成立時間 {formatCreatedAt(order.created_at)}
-                  </p>
-                </div>
-
-                <div className="flex shrink-0 gap-2 sm:flex-col">
-                  <button
-                    type="button"
-                    disabled={!isPending || busy}
-                    onClick={() => void handleAccept(order.id)}
-                    className="rounded-lg bg-zinc-900 px-4 py-2 text-sm font-medium text-white shadow-sm disabled:cursor-not-allowed disabled:bg-zinc-300"
-                  >
-                    {busy ? "處理中…" : "接單"}
-                  </button>
-                </div>
-              </li>
-            );
-          })}
-        </ul>
-      )}
+      <div className="grid gap-6 lg:grid-cols-3">
+        {column(
+          "新訂單",
+          "待接單",
+          newOrders,
+          "new",
+        )}
+        {column("製作中", "備餐中", making, "making")}
+        {column("已完成", "出餐", done, "done")}
+      </div>
     </div>
   );
 }

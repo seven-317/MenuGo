@@ -1,6 +1,5 @@
 import Link from "next/link";
 
-/** 示範桌次：須與種子／資料庫 qr_token、以及 SCAN_HMAC_SECRET 簽出的 sig 一致 */
 const DEMO_SCAN = {
   token: "menugo_scan_demo_a1",
   sig: "XjmNN3yrMjJVDMb-Hnjee41VuGKnWUTXwtcmsdpxH0Q",
@@ -111,7 +110,6 @@ const btnSecondary =
 export default function Home() {
   return (
     <div className="relative flex min-h-full flex-col bg-menu-bg text-menu-ink">
-      {/* 裝飾色塊 */}
       <div
         className="pointer-events-none fixed inset-0 overflow-hidden"
         aria-hidden
@@ -139,6 +137,9 @@ export default function Home() {
           >
             <Link href={demoScanHref} className={`${navFocus} text-menu-primary`}>
               示範掃碼
+            </Link>
+            <Link href="/admin" className={navFocus}>
+              店家後台
             </Link>
             <a href="#features" className={navFocus}>
               功能

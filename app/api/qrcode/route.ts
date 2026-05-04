@@ -1,7 +1,6 @@
 import QRCode from "qrcode";
 import { NextResponse } from "next/server";
 
-/** `qrcode` 依賴 Node Buffer，請勿改為 Edge Runtime */
 export const runtime = "nodejs";
 
 const MAX_URL_LENGTH = 2048;
@@ -16,9 +15,6 @@ function clampSize(n: number): number {
   return Math.min(MAX_SIZE, Math.max(MIN_SIZE, Math.floor(n)));
 }
 
-/**
- * 只允許 http(s)，防止 javascript: 等偽協議；此處不發出 HTTP 請求，僅嵌入 QR 內容。
- */
 export function parseQrTargetUrl(raw: string): string {
   const trimmed = raw.trim();
   if (!trimmed || trimmed.length > MAX_URL_LENGTH) {
@@ -60,10 +56,6 @@ async function pngResponse(target: string, width: number) {
   });
 }
 
-/**
- * GET /api/qrcode?url=<encodeURIComponent(完整網址)>&size=320
- * 回傳 PNG 圖片。
- */
 export async function GET(request: Request) {
   const { searchParams } = new URL(request.url);
   const raw = searchParams.get("url");
@@ -96,11 +88,6 @@ type PostBody = {
   size?: unknown;
 };
 
-/**
- * POST /api/qrcode
- * Body: { "url": "https://...", "size": 320 }
- * 回傳 PNG 圖片（適合較長網址，避免 query 長度限制）。
- */
 export async function POST(request: Request) {
   let body: PostBody;
   try {

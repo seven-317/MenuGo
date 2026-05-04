@@ -1,6 +1,3 @@
--- MenuGo：以單一 RPC 在交易內建立訂單與 order_items，並由資料庫計算 total_price
--- 請在 sql/schema.sql 套用後於 Supabase SQL Editor 執行本檔（或併入 migration）。
-
 CREATE OR REPLACE FUNCTION public.create_customer_order (
   p_restaurant_id uuid,
   p_table_id uuid,

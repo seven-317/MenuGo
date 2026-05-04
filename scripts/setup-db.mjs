@@ -1,21 +1,5 @@
 #!/usr/bin/env node
 
-/**
- * MenuGo 一鍵設定（懶人版）
- *
- * 最少只要在 .env.local 有：
- * - NEXT_PUBLIC_SUPABASE_URL
- * - NEXT_PUBLIC_SUPABASE_SERVICE_ROLE_KEY（或 SUPABASE_SERVICE_ROLE_KEY）
- *
- * 第一次建表／RPC：後台 **Database → 資料庫密碼** 複製到 .env.local：
- * - SUPABASE_DB_PASSWORD=你的密碼
- * （腳本會自動組連線字串跑 sql/schema.sql + rpc；不必找 URI、不必手動貼 SQL）
- *
- * 店長是誰：有設 DEMO_OWNER_EMAIL / DEMO_OWNER_ID 就用；沒設 → 自動用 Auth 裡「第一個使用者」。
- *
- * 用法：npm run setup
- */
-
 import { createClient } from "@supabase/supabase-js";
 import dotenv from "dotenv";
 import fs from "node:fs";
@@ -52,7 +36,6 @@ function getServiceRoleKey() {
   return key;
 }
 
-/** 從網址取出 project ref，例如 https://abc.supabase.co → abc */
 function supabaseProjectRef(supabaseUrl) {
   let host;
   try {
@@ -69,9 +52,6 @@ function supabaseProjectRef(supabaseUrl) {
   return host.slice(0, -suffix.length);
 }
 
-/**
- * 連線字串：優先用 DATABASE_URL；否則用 SUPABASE_DB_PASSWORD（或 DATABASE_PASSWORD）自動組。
- */
 function resolvePostgresUrl(supabaseUrl) {
   const explicit = process.env.DATABASE_URL?.trim();
   if (explicit) return explicit;
