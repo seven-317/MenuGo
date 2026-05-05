@@ -14,24 +14,9 @@ CREATE POLICY "tables_select_owner"
     )
   );
 
-CREATE OR REPLACE FUNCTION public.get_table_for_scan (p_qr_token text)
-RETURNS TABLE (
-  id uuid,
-  restaurant_id uuid,
-  table_number text
-)
-LANGUAGE sql
-STABLE
-SECURITY DEFINER
-SET search_path = public
-AS $$
-  SELECT t.id, t.restaurant_id, t.table_number
-  FROM public."tables" t
-  WHERE t.qr_token = p_qr_token
-  LIMIT 1;
-$$;
-
-GRANT EXECUTE ON FUNCTION public.get_table_for_scan (text) TO anon, authenticated;
+-- get_table_for_scan 定義請見 sql/migrate_table_sessions.sql（或 sql/schema.sql）。
+-- 勿在此以舊版 RETURNS（僅 3 欄）做 CREATE OR REPLACE，否則會報
+-- cannot change return type of existing function。
 
 CREATE OR REPLACE FUNCTION public.enforce_order_restaurant_matches_table ()
 RETURNS trigger

@@ -10,8 +10,9 @@ import pg from "pg";
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const root = path.join(__dirname, "..");
 
-dotenv.config({ path: path.join(root, ".env") });
-dotenv.config({ path: path.join(root, ".env.local"), override: true });
+// 與 Next 慣例相反：種子／SQL 相關腳本以 .env 為準（同鍵時覆寫 .env.local）
+dotenv.config({ path: path.join(root, ".env.local") });
+dotenv.config({ path: path.join(root, ".env"), override: true });
 
 function die(msg) {
   console.error(msg);
@@ -23,6 +24,15 @@ function getSupabaseUrl() {
     process.env.NEXT_PUBLIC_SUPABASE_URL?.trim() ||
     process.env.SUPABASE_URL?.trim();
   if (!url) die("缺少 NEXT_PUBLIC_SUPABASE_URL。");
+  if (/^postgres(ql)?:/i.test(url)) {
+    die(
+      "NEXT_PUBLIC_SUPABASE_URL 必須是 Supabase 的 HTTPS API 網址（Dashboard → Settings → API 的 Project URL），\n" +
+        "例如 https://xxxxx.supabase.co。\n\n" +
+        "若你貼的是 postgresql://...pooler.supabase.com...，那是資料庫連線，請放到環境變數 DATABASE_URL，\n" +
+        "不要取代 NEXT_PUBLIC_SUPABASE_URL。\n\n" +
+        "若 .env 裡有空的 DATABASE_URL=，會蓋掉 .env.local 的值，請刪除空行或把完整連線字串寫進 .env。",
+    );
+  }
   return url;
 }
 
@@ -44,17 +54,31 @@ function supabaseProjectRef(supabaseUrl) {
     die("NEXT_PUBLIC_SUPABASE_URL 不是合法網址。");
   }
   const suffix = ".supabase.co";
-  if (!host.endsWith(suffix)) {
-    die(
-      "目前僅支援預設 Supabase 網址（*.supabase.co）。若是自訂網域請改設完整的 DATABASE_URL。",
-    );
+  if (host.endsWith(suffix)) {
+    return host.slice(0, -suffix.length);
   }
-  return host.slice(0, -suffix.length);
+  const fromEnv = process.env.SUPABASE_PROJECT_REF?.trim();
+  if (fromEnv) {
+    return fromEnv;
+  }
+  die(
+    "無法從 NEXT_PUBLIC_SUPABASE_URL 取得專案 ref（須為 *.<ref>.supabase.co）。\n\n" +
+      "請擇一：\n" +
+      "• 將 API 網址改回 https://<ref>.supabase.co；或\n" +
+      "• 在 .env 設定 SUPABASE_PROJECT_REF=<ref>，並設定 DATABASE_URL（pooler 的 postgresql://...）；或\n" +
+      "• 只使用 DATABASE_URL 跑 migration 時，仍須保留正確的 NEXT_PUBLIC_SUPABASE_URL 供 Supabase JS 使用。\n\n" +
+      "切勿將 postgresql://...pooler... 設成 NEXT_PUBLIC_SUPABASE_URL。",
+  );
 }
 
 function resolvePostgresUrl(supabaseUrl) {
-  const explicit = process.env.DATABASE_URL?.trim();
-  if (explicit) return explicit;
+  const explicit =
+    process.env.DATABASE_URL?.trim() ||
+    process.env.POSTGRES_URL?.trim() ||
+    process.env.POSTGRES_PRISMA_URL?.trim();
+  if (explicit) {
+    return explicit;
+  }
 
   const pw =
     process.env.SUPABASE_DB_PASSWORD?.trim() ||
@@ -73,6 +97,47 @@ function pgSsl(databaseUrl) {
     : { rejectUnauthorized: false };
 }
 
+function explainPgConnectFailure(err, databaseUrl) {
+  let host = null;
+  try {
+    host = new URL(
+      databaseUrl.replace(/^postgres(ql)?:/i, "http:"),
+    ).hostname;
+  } catch {
+    /* ignore */
+  }
+  const lines = [
+    `無法連上 PostgreSQL：${[err.code, err.message].filter(Boolean).join(" ")}`,
+    "",
+    "可嘗試：",
+    "• 確認 Supabase 專案未暫停、網路／VPN／DNS 正常。",
+    "• 若為 ENOTFOUND：用密碼自動組出的主機 db.<專案>.supabase.co 在部分網路只有 IPv6 或解析失敗。",
+    "  請到 Supabase → Project Settings → Database → Connection string 複製 URI，",
+    "  在 .env 設定 DATABASE_URL=...（建議 Session pooler 或 Transaction pooler，通常有 IPv4）。",
+  ];
+  if (host) {
+    lines.push(`  本次連線主機：${host}`);
+  }
+  lines.push(
+    "• 密碼錯誤請對照後台 Database password，並保留 URI 附帶的 query（如 sslmode）。",
+  );
+  return lines.join("\n");
+}
+
+async function createPgClientConnected(databaseUrl) {
+  const client = new pg.Client({
+    connectionString: databaseUrl,
+    ssl: pgSsl(databaseUrl),
+  });
+  try {
+    await client.connect();
+  } catch (err) {
+    await client.end().catch(() => {});
+    die(explainPgConnectFailure(err, databaseUrl));
+  }
+  return client;
+}
+
 async function schemaExists(client) {
   const { rows } = await client.query(`
     SELECT EXISTS (
@@ -86,11 +151,7 @@ async function schemaExists(client) {
 async function runSqlFilePg(databaseUrl, label, filePath) {
   const sql = fs.readFileSync(filePath, "utf8");
   console.log(`→ ${label}`);
-  const client = new pg.Client({
-    connectionString: databaseUrl,
-    ssl: pgSsl(databaseUrl),
-  });
-  await client.connect();
+  const client = await createPgClientConnected(databaseUrl);
   try {
     await client.query(sql);
   } finally {
@@ -99,11 +160,7 @@ async function runSqlFilePg(databaseUrl, label, filePath) {
 }
 
 async function ensureSchemaAndRpc(pgUrl) {
-  const probe = new pg.Client({
-    connectionString: pgUrl,
-    ssl: pgSsl(pgUrl),
-  });
-  await probe.connect();
+  const probe = await createPgClientConnected(pgUrl);
   let exists;
   try {
     exists = await schemaExists(probe);
@@ -349,10 +406,11 @@ async function main() {
     const ok = await tablesReachable(supabase);
     if (!ok) {
       die(
-        "\n還沒建資料表，請在 .env.local 加一行（Supabase 後台 → Database → 資料庫密碼）：\n\n" +
-          "  SUPABASE_DB_PASSWORD=你的密碼\n\n" +
-          "存檔後再執行：npm run setup\n\n" +
-          "（這個密碼是建立專案時設的 postgres 密碼，不是 anon / service_role JWT。）\n",
+        "\n還沒建資料表，請擇一：\n\n" +
+          "• 在 .env 設定 DATABASE_URL=postgresql://...（Session pooler 連線字串）；或\n" +
+          "• 設定 SUPABASE_DB_PASSWORD=postgres 密碼（將組出 db.<ref>.supabase.co，僅 IPv6 網路可能連不上）。\n\n" +
+          "注意：.env 若有空的 DATABASE_URL= 會蓋掉 .env.local 裡的值。\n" +
+          "密碼含 # 請整串加引號：DATABASE_URL=\"postgresql://...\"\n",
       );
     }
     console.log(

@@ -6,8 +6,9 @@ import { fileURLToPath } from "node:url";
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const root = path.join(__dirname, "..");
-dotenv.config({ path: path.join(root, ".env") });
-dotenv.config({ path: path.join(root, ".env.local"), override: true });
+// 種子／掃碼網址腳本：同鍵以 .env 為準
+dotenv.config({ path: path.join(root, ".env.local") });
+dotenv.config({ path: path.join(root, ".env"), override: true });
 
 const token = (process.argv[2] || "menugo_scan_demo_a1").trim();
 const secret = process.env.SCAN_HMAC_SECRET?.trim();
