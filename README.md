@@ -1,72 +1,90 @@
+```markdown
 # MenuGo
 
-學校報告用 **QR Code 線上點餐** 當練習專題：顧客掃碼看菜單、下單；店家後台管理餐桌／菜單、產生**限時入座 QR**、即時接單。此儲存庫為公開，主要方便繳交與同儕參考，並非商業產品。
+[English Version](./README_en.md) | 繁體中文版
 
-## 用了什麼
+> 一個極簡化的 QR Code 點餐系統，旨在優化用餐體驗並全面消除紙本作業流程。
 
-- **Next.js**（App Router）+ **React**
-- **Tailwind CSS**
-- **Supabase**：PostgreSQL、Auth、**Realtime**
-- 資料表、RLS、RPC 寫在 `sql/`，舊庫可透過 `sql/migrate_*.sql` 補齊
+MenuGo 是一個專為餐廳與咖啡廳打造的現代化、輕量化數位點餐解決方案。透過 QR Code 取代實體菜單與傳統紙本單據，我們降低了溝通成本、減少人為錯誤，並為顧客與餐廳管理人員提供無縫的流程體驗。
 
-## 功能概述
+## ⚠️ 專案聲明
 
-### 顧客（掃碼）
+本專案係為**課堂報告與學術研究實作**之用途所開發，**並非商業化產品**。所有功能與技術架構主要用於展示概念與學習交流，請勿直接用於商業營運環境。
 
-- **`/scan/[token]`**：依入座節次的 `qr_token` 開啟點餐頁（可選 `SCAN_HMAC_SECRET` 幫網址加簽，見 `lib/scan/hmac.ts`）。
-- **限時規則**：店家在後台為「這一桌、這一場客人」產生新 QR；可設定 **用餐時間**（預設 120 分鐘）與 **點餐時間**（預設 90 分鐘）。逾時後掃碼頁失效、亦無法再送單（由 RPC 與頁面雙重把關）。
-- 菜單只顯示 `available` 品項；送單走 **`/api/order`** → `create_customer_order(p_table_session_id, …)`，避免單頭／明細寫入不一致。
-- 可從「資訊」分頁查看本場次已送訂單（需同一 QR／同一節次）。
+## 核心亮點
 
-### 店家後台
+- **即時掃碼點餐**：顧客只需掃描 QR Code 即可進入互動式菜單，無需下載任何應用程式。
+- **資料即時同步**：訂單會立即推送到廚房與管理後台，確保訊息零時差。
+- **無紙化作業**：完全取代實體菜單、點菜本與紙本收據，落實環保與高效管理。
+- **極簡使用者介面**：專注於易用性與速度的乾淨介面，減少視覺干擾。
+- **統一管理後台**：在同一個地方輕鬆管理菜單品項、價格、桌位狀態與進單狀況。
 
-- **`/admin/login`**、**`/admin/register`**：註冊／登入（Supabase Auth）。新帳號可在首頁建立第一間餐廳與第一桌。
-- **`/admin/tables`**：管理餐桌（桌號；入座 QR 在別頁產生）。
-- **`/admin/menus`**：管理餐點（價格、分類、上架／停售等）。
-- **`/admin/qr`（入座 QR）**：選桌 → 設定用餐／點餐分鐘數 → **產生入座 QR**；同一桌開新場次會自動作廢尚未撤銷的舊節次。
-- **`/admin/orders`**：即時訂單看板（需開 Realtime，見下方）。
+## 技術架構
 
-### 資料與安全（精簡）
+- **框架**：[Next.js](https://nextjs.org/) (App Router)
+- **資料庫與驗證**：[Supabase](https://supabase.com/)
+- **開發語言**：TypeScript
+- **樣式設定**：Tailwind CSS
 
-- **`table_sessions`**：每場入座一筆，帶 `qr_token`、`dining_duration_minutes`、`order_window_minutes`、`revoked_at`。
-- **`get_table_for_scan`**：匿名可查有效節次對應的桌與餐廳（`SECURITY DEFINER`）；一般身分無法對 `tables` 做公開 SELECT。
-- **`tables` / `menus`**：以 RLS 限制為**該餐廳擁有者**可管理；示範與結構見 `sql/schema.sql` 與 `sql/migrate_table_sessions.sql`。
+## 快速開始
 
-## 在本機跑起來
+### 前置需求
+請確保您的開發環境已安裝以下工具：
+- Node.js (版本 18 或更新)
+- 套件管理工具 (npm, yarn 或 pnpm)
+- 一個 Supabase 專案
 
-1. 安裝依賴：`npm install`
-2. 複製環境變數：`cp .env.example .env.local`，到 Supabase 填入：
-   - **Settings → API**：`NEXT_PUBLIC_SUPABASE_URL`、`NEXT_PUBLIC_SUPABASE_ANON_KEY`、`NEXT_PUBLIC_SUPABASE_SERVICE_ROLE_KEY`（service_role 給 `npm run setup` 與種子）
-   - （選填）`SCAN_HMAC_SECRET`：啟用後掃碼網址需帶 `?sig=`
-   - （選填）`NEXT_PUBLIC_APP_URL`：正式／預覽網址根路徑（QR、重新導向用）
-3. **資料庫與種子**：在 `.env.local` 加上 **`SUPABASE_DB_PASSWORD`**（Supabase → **Database** 的 postgres 密碼），執行 **`npm run setup`**：依序跑 `migrate_tables_rls_rpc.sql`、`migrate_table_sessions.sql`、`rpc_create_customer_order.sql`，並寫入示範餐廳／桌／**入座節次**／菜單。若未加密碼但已手動在 SQL Editor 跑過上述檔案，亦可只依賴種子步驟（視你的 `setup-db.mjs` 設定而定）。
-   - 示範掃碼 token 仍為 `menugo_scan_demo_a1`（見 script 輸出或 `npm run scan:url`）。
-   - 店長種子可設 `DEMO_OWNER_EMAIL`；未設則使用 Authentication 第一位使用者。
-4. **Database → Replication**：`public.orders` 開啟 **Realtime**（後廚接單即時更新）。若已開啟仍要手動重整，請確認接單頁有登入；專案內已對 Realtime 呼叫 `setAuth(access_token)`，讓 `orders` 的 RLS（僅店長可看）能套用在訂閱上。接單看板並每 15 秒在分頁可見時自動重抓列表作備援。
-5. **`npm run dev`**。
+### 安裝與設定步驟
 
-常用指令：`npm run build`、`npm run start`、`npm run lint`、`npm run scan:url`。
+1. **複製專案庫**
+   ```bash
+   git clone [https://github.com/seven-317/MenuGo.git](https://github.com/seven-317/MenuGo.git)
+   cd MenuGo
+   ```
 
-## 目錄結構
+2. **安裝相依套件**
+   ```bash
+   npm install
+   ```
 
+3. **設定環境變數**
+   在專案根目錄建立一個 `.env.local` 檔案，並填入您的 Supabase 憑證：
+   ```env
+   NEXT_PUBLIC_SUPABASE_URL=您的_Supabase_專案網址
+   NEXT_PUBLIC_SUPABASE_ANON_KEY=您的_Supabase_匿名金鑰
+   ```
+
+4. **啟動開發伺服器**
+   ```bash
+   npm run dev
+   ```
+   接著在瀏覽器開啟 [http://localhost:3000](http://localhost:3000) 即可查看應用程式。
+
+## 專案結構
+
+```text
+MenuGo/
+├── public/             # 靜態資源與圖片
+├── src/
+│   ├── app/            # Next.js App Router (頁面與 API 路由)
+│   ├── components/     # 可複用的 UI 元件
+│   ├── lib/            # 工具函式與 Supabase 客戶端配置
+│   └── types/          # TypeScript 類型定義
+├── .env.example        # 環境變數範例檔
+└── package.json
 ```
-app/
-  admin/              # 登入、註冊、餐桌／菜單／入座 QR／接單
-  api/order/          # 顧客送單
-  api/scan/           # 組掃碼網址、查歷史訂單
-  scan/[token]/       # 顧客掃碼頁
-components/admin/     # 後台 UI、即時訂單板
-components/scan/      # 點餐與場次倒數 UX
-lib/scan/             # HMAC、截止時間顯示格式等
-lib/supabase/         # 各環境 Supabase client
-scripts/setup-db.mjs  # 建表／migration／種子
-sql/                  # schema、RPC、migrate_*.sql
+
+## 貢獻指南
+
+我們非常歡迎任何形式的貢獻！如果您對 MenuGo 有改進建議或發現任何錯誤，請提交 Issue。
+
+1. 衍生 (Fork) 此專案
+2. 建立您的功能分支 (`git checkout -b feature/AmazingFeature`)
+3. 提交您的修改 (`git commit -m '說明內容'`)
+4. 推送到分支 (`git push origin feature/AmazingFeature`)
+5. 開啟合併請求 (Pull Request)
+
+## 授權條款
+
+本專案採用 MIT 授權條款。詳情請參閱 `LICENSE` 檔案。
 ```
-
-## 這個題目可以練習什麼
-
-練習把點餐拆成前後台、用 **RLS** 與 **RPC** 保資料、用 **Realtime** 做出新單即時反映，並加上**每場入座限時 QR** 這類較貼近實務的限制。
-
-## 授權
-
-見 [LICENSE](./LICENSE)。
