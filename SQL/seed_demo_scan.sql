@@ -1,5 +1,6 @@
 -- 重建「示範餐廳」掃碼 demo（token：menugo_scan_demo_a1）。
 -- 掃碼頁讀的是 public.table_sessions.qr_token，必須有入座節次這一筆。
+-- 此 token 在 get_table_for_scan / create_customer_order 中為「展示用」：不套用用餐／點餐截止（仍會檢查 revoked）。
 --
 -- 使用前：將下方 v_owner 改成 Supabase → Authentication → Users 裡你的使用者 UUID。
 -- 或在專案目錄執行 npm run setup（會用 service_role 重種、並印出掃碼網址）。
@@ -9,7 +10,7 @@ DECLARE
   v_owner uuid := '00000000-0000-0000-0000-000000000000'::uuid;
   v_rid uuid;
   v_table_id uuid;
-  demo_name text := '示範餐廳 MenuGo Demo';
+  demo_name text := '';
 BEGIN
   IF v_owner = '00000000-0000-0000-0000-000000000000'::uuid THEN
     RAISE EXCEPTION '請先將 v_owner 改為你在 auth.users 的真實 User UUID';

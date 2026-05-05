@@ -236,7 +236,7 @@ async function tablesReachable(supabase) {
 }
 
 async function seedDemo(supabase, ownerId) {
-  const demoName = "示範餐廳 MenuGo Demo";
+  const demoName = "示範餐廳";
   const qrToken = "menugo_scan_demo_a1";
 
   const { data: existingRestaurants } = await supabase

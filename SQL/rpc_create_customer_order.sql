@@ -1,4 +1,4 @@
-DROP FUNCTION IF EXISTS public.create_customer_order(uuid, uuid, jsonb);
+DROP FUNCTION IF EXISTS public.create_customer_order(uuid, jsonb);
 
 CREATE OR REPLACE FUNCTION public.create_customer_order (
   p_table_session_id uuid,
@@ -13,6 +13,7 @@ DECLARE
   v_order_id uuid;
   v_table_id uuid;
   v_restaurant_id uuid;
+  v_qr_token text;
   v_order_until timestamptz;
   v_session_until timestamptz;
   v_total numeric(12, 2) := 0;
@@ -29,9 +30,10 @@ BEGIN
   SELECT
     s.table_id,
     s.restaurant_id,
+    s.qr_token,
     s.started_at + (s.order_window_minutes || ' minutes')::interval,
     s.started_at + (s.dining_duration_minutes || ' minutes')::interval
-  INTO v_table_id, v_restaurant_id, v_order_until, v_session_until
+  INTO v_table_id, v_restaurant_id, v_qr_token, v_order_until, v_session_until
   FROM public.table_sessions s
   WHERE s.id = p_table_session_id
     AND s.revoked_at IS NULL;
@@ -40,12 +42,15 @@ BEGIN
     RAISE EXCEPTION 'table session not found or revoked';
   END IF;
 
-  IF now() >= v_session_until THEN
-    RAISE EXCEPTION 'session expired';
-  END IF;
+  -- 示範 token 與 get_table_for_scan 一致：不限時送單
+  IF v_qr_token IS DISTINCT FROM 'menugo_scan_demo_a1' THEN
+    IF now() >= v_session_until THEN
+      RAISE EXCEPTION 'session expired';
+    END IF;
 
-  IF now() >= v_order_until THEN
-    RAISE EXCEPTION 'ordering window closed';
+    IF now() >= v_order_until THEN
+      RAISE EXCEPTION 'ordering window closed';
+    END IF;
   END IF;
 
   FOR el IN

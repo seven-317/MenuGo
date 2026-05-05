@@ -108,6 +108,7 @@ CREATE TRIGGER trg_revoke_prior_table_sessions
 
 DROP FUNCTION IF EXISTS public.get_table_for_scan (text);
 
+-- 示範 QR token（與種子相同）：長期展示用，不套用用餐／點餐截止；一般 token 仍依分鐘數限時。
 CREATE OR REPLACE FUNCTION public.get_table_for_scan (p_qr_token text)
 RETURNS TABLE (
   id uuid,
@@ -127,14 +128,25 @@ AS $$
     t.restaurant_id,
     t.table_number,
     s.id,
-    s.started_at + (s.order_window_minutes || ' minutes')::interval,
-    s.started_at + (s.dining_duration_minutes || ' minutes')::interval
+    CASE
+      WHEN s.qr_token = 'menugo_scan_demo_a1'
+      THEN s.started_at + interval '100 years'
+      ELSE s.started_at + (s.order_window_minutes || ' minutes')::interval
+    END,
+    CASE
+      WHEN s.qr_token = 'menugo_scan_demo_a1'
+      THEN s.started_at + interval '100 years'
+      ELSE s.started_at + (s.dining_duration_minutes || ' minutes')::interval
+    END
   FROM public.table_sessions s
   INNER JOIN public."tables" t ON t.id = s.table_id
     AND t.restaurant_id = s.restaurant_id
   WHERE s.qr_token = p_qr_token
     AND s.revoked_at IS NULL
-    AND now() < s.started_at + (s.dining_duration_minutes || ' minutes')::interval
+    AND (
+      s.qr_token = 'menugo_scan_demo_a1'
+      OR now() < s.started_at + (s.dining_duration_minutes || ' minutes')::interval
+    )
   LIMIT 1;
 $$;
 
