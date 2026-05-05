@@ -10,7 +10,7 @@ DECLARE
   v_owner uuid := '00000000-0000-0000-0000-000000000000'::uuid;
   v_rid uuid;
   v_table_id uuid;
-  demo_name text := '';
+  demo_name text := '示範餐廳';
 BEGIN
   IF v_owner = '00000000-0000-0000-0000-000000000000'::uuid THEN
     RAISE EXCEPTION '請先將 v_owner 改為你在 auth.users 的真實 User UUID';
