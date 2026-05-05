@@ -48,61 +48,41 @@ Ensure you have the following installed:
 
 1. **Clone the repository**
 
-   git clone [https://github.com/seven-317/MenuGo.git](https://github.com/seven-317/MenuGo.git)
+   `git clone [https://github.com/seven-317/MenuGo.git](https://github.com/seven-317/MenuGo.git)`
 
-   cd MenuGo
+   `cd MenuGo`
 
 2. **Install dependencies**
 
-   npm install
+   `npm install`
 
 3. **Configure Environment Variables**
 
-   Create a .env.local file in the root directory and add your Supabase credentials:
+   Create a `.env.local` file in the root directory and add your Supabase credentials:
 
-   NEXT_PUBLIC_SUPABASE_URL=your_supabase_project_url
+   `NEXT_PUBLIC_SUPABASE_URL=your_supabase_project_url`
 
-   NEXT_PUBLIC_SUPABASE_ANON_KEY=your_supabase_anon_key
+   `NEXT_PUBLIC_SUPABASE_ANON_KEY=your_supabase_anon_key`
 
 4. **Start the development server**
 
-   npm run dev
+   `npm run dev`
 
 Open [http://localhost:3000](http://localhost:3000) with your browser to view the application.
 
 ## Project Structure
 
+```
 MenuGo/
-
 ├── public/             # Static assets and images
-
 ├── src/
-
 │   ├── app/            # Next.js App Router (Pages & API routes)
-
 │   ├── components/     # Reusable UI components
-
 │   ├── lib/            # Utility functions and Supabase client config
-
 │   └── types/          # TypeScript definitions
-
 ├── .env.example        # Environment variable template
-
 └── package.json
-
-## Contributing
-
-We welcome contributions! If you have suggestions for how MenuGo could be improved, or want to report a bug, open an issue! 
-
-1. Fork the Project
-
-2. Create your Feature Branch (git checkout -b feature/AmazingFeature)
-
-3. Commit your Changes (git commit -m 'Add some AmazingFeature')
-
-4. Push to the Branch (git push origin feature/AmazingFeature)
-
-5. Open a Pull Request
+```
 
 ## License
 
