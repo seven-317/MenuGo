@@ -2,7 +2,7 @@
 
 import Image from "next/image";
 import Link from "next/link";
-import { useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useState } from "react";
 
 import { AdminSignOutButton } from "@/components/admin/AdminSignOutButton";
 import { createSupabaseBrowserClient } from "@/lib/supabase/client";
@@ -31,10 +31,39 @@ type ActiveSession = {
   sessionUntilIso: string;
 };
 
+type OpenSessionRow = {
+  id: string;
+  table_id: string;
+  restaurant_id: string;
+  qr_token: string;
+  started_at: string;
+  dining_duration_minutes: number;
+  order_window_minutes: number;
+};
+
 function sessionEndIso(startedAtIso: string, minutes: number): string {
   const d = new Date(startedAtIso);
   d.setMinutes(d.getMinutes() + minutes);
   return d.toISOString();
+}
+
+async function fetchScanUrl(qrToken: string): Promise<{
+  url: string | null;
+  error: string | null;
+}> {
+  const buildRes = await fetch("/api/scan/build-scan-url", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ qr_token: qrToken }),
+  });
+  const buildBody = (await buildRes.json().catch(() => ({}))) as {
+    url?: string;
+    error?: string;
+  };
+  if (!buildRes.ok || !buildBody.url) {
+    return { url: null, error: buildBody.error ?? "無法組掃碼網址" };
+  }
+  return { url: buildBody.url, error: null };
 }
 
 export function AdminQrGeneratorClient({
@@ -51,8 +80,16 @@ export function AdminQrGeneratorClient({
   const [orderMinutes, setOrderMinutes] = useState(DEFAULT_ORDER_MIN);
   const [busy, setBusy] = useState(false);
   const [message, setMessage] = useState<string | null>(null);
+  const [messageSuccess, setMessageSuccess] = useState(false);
   const [active, setActive] = useState<ActiveSession | null>(null);
   const [copied, setCopied] = useState(false);
+
+  const [openSessions, setOpenSessions] = useState<OpenSessionRow[]>([]);
+  const [sessionsLoading, setSessionsLoading] = useState(true);
+  const [sessionsError, setSessionsError] = useState<string | null>(null);
+  const [revokingId, setRevokingId] = useState<string | null>(null);
+  const [regeneratingId, setRegeneratingId] = useState<string | null>(null);
+  const [copiedSessionId, setCopiedSessionId] = useState<string | null>(null);
 
   const restaurantIds = useMemo(
     () => [...new Set(tables.map((t) => t.restaurant_id))],
@@ -67,6 +104,11 @@ export function AdminQrGeneratorClient({
     [tables],
   );
 
+  const tableById = useMemo(
+    () => Object.fromEntries(tables.map((t) => [t.id, t])),
+    [tables],
+  );
+
   const filteredTables = useMemo(
     () => tables.filter((t) => t.restaurant_id === restaurantId),
     [tables, restaurantId],
@@ -77,18 +119,86 @@ export function AdminQrGeneratorClient({
     [tables, selectedTableId],
   );
 
+  const displayedOpenSessions = useMemo(
+    () => openSessions.filter((s) => s.restaurant_id === restaurantId),
+    [openSessions, restaurantId],
+  );
+
+  const loadOpenSessions = useCallback(async () => {
+    if (restaurantIds.length === 0) {
+      setOpenSessions([]);
+      setSessionsLoading(false);
+      return;
+    }
+    setSessionsLoading(true);
+    setSessionsError(null);
+    const supabase = createSupabaseBrowserClient();
+    const { data, error } = await supabase
+      .from("table_sessions")
+      .select(
+        "id, table_id, restaurant_id, qr_token, started_at, dining_duration_minutes, order_window_minutes",
+      )
+      .in("restaurant_id", restaurantIds)
+      .is("revoked_at", null)
+      .order("started_at", { ascending: false });
+
+    setSessionsLoading(false);
+    if (error) {
+      setSessionsError(error.message);
+      setOpenSessions([]);
+      return;
+    }
+    setOpenSessions((data ?? []) as OpenSessionRow[]);
+  }, [restaurantIds]);
+
+  useEffect(() => {
+    void loadOpenSessions();
+  }, [loadOpenSessions]);
+
   const qrImageSrc = active
     ? `/api/qrcode?url=${encodeURIComponent(active.scanUrl)}&size=${QR_SIZE}`
     : "";
+
+  const applyActiveFromSessionData = async (data: {
+    qr_token: string;
+    started_at: string;
+    dining_duration_minutes: number;
+    order_window_minutes: number;
+  }) => {
+    const { url, error: urlErr } = await fetchScanUrl(data.qr_token);
+    if (!url) {
+      setMessageSuccess(false);
+      setMessage(urlErr ?? "無法組掃碼網址");
+      return;
+    }
+    const startedAt =
+      typeof data.started_at === "string"
+        ? data.started_at
+        : new Date().toISOString();
+    setActive({
+      scanUrl: url,
+      qrToken: data.qr_token,
+      orderUntilIso: sessionEndIso(
+        startedAt,
+        Number(data.order_window_minutes),
+      ),
+      sessionUntilIso: sessionEndIso(
+        startedAt,
+        Number(data.dining_duration_minutes),
+      ),
+    });
+  };
 
   const generateSession = async () => {
     if (!selected) {
       return;
     }
     if (orderMinutes > diningMinutes) {
+      setMessageSuccess(false);
       setMessage("點餐時間不可長於總用餐時間");
       return;
     }
+    setMessageSuccess(false);
     setMessage(null);
     setBusy(true);
     setActive(null);
@@ -114,17 +224,9 @@ export function AdminQrGeneratorClient({
       return;
     }
 
-    const buildRes = await fetch("/api/scan/build-scan-url", {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ qr_token: data.qr_token }),
-    });
-    const buildBody = (await buildRes.json().catch(() => ({}))) as {
-      url?: string;
-      error?: string;
-    };
-    if (!buildRes.ok || !buildBody.url) {
-      setMessage(buildBody.error ?? "無法組掃碼網址");
+    const { url, error: urlErr } = await fetchScanUrl(data.qr_token);
+    if (!url) {
+      setMessage(urlErr ?? "無法組掃碼網址");
       return;
     }
 
@@ -134,7 +236,7 @@ export function AdminQrGeneratorClient({
         : new Date().toISOString();
 
     setActive({
-      scanUrl: buildBody.url,
+      scanUrl: url,
       qrToken: data.qr_token,
       orderUntilIso: sessionEndIso(
         startedAt,
@@ -145,6 +247,75 @@ export function AdminQrGeneratorClient({
         Number(data.dining_duration_minutes),
       ),
     });
+    await loadOpenSessions();
+  };
+
+  const revokeSession = async (row: OpenSessionRow) => {
+    setMessage(null);
+    setMessageSuccess(false);
+    setRevokingId(row.id);
+    const supabase = createSupabaseBrowserClient();
+    const { error } = await supabase
+      .from("table_sessions")
+      .update({ revoked_at: new Date().toISOString() })
+      .eq("id", row.id);
+    setRevokingId(null);
+    if (error) {
+      setMessage(error.message);
+      return;
+    }
+    if (active?.qrToken === row.qr_token) {
+      setActive(null);
+    }
+    await loadOpenSessions();
+    setMessageSuccess(true);
+    setMessage("已關閉此入座節次，掃碼連結已失效。");
+  };
+
+  const regenerateSession = async (row: OpenSessionRow) => {
+    setMessage(null);
+    setMessageSuccess(false);
+    setRegeneratingId(row.id);
+    const supabase = createSupabaseBrowserClient();
+    const { data, error } = await supabase
+      .from("table_sessions")
+      .insert({
+        table_id: row.table_id,
+        restaurant_id: row.restaurant_id,
+        dining_duration_minutes: row.dining_duration_minutes,
+        order_window_minutes: row.order_window_minutes,
+      })
+      .select(
+        "id, qr_token, started_at, dining_duration_minutes, order_window_minutes",
+      )
+      .single();
+    setRegeneratingId(null);
+    if (error || !data) {
+      setMessage(error?.message ?? "重新產生失敗");
+      return;
+    }
+    await loadOpenSessions();
+    if (selectedTableId === row.table_id) {
+      await applyActiveFromSessionData(data);
+    }
+    setMessageSuccess(true);
+    setMessage("已重新產生 QR，舊連結已失效；請使用新連結或下方列表操作。");
+  };
+
+  const copySessionLink = async (row: OpenSessionRow) => {
+    const { url, error: urlErr } = await fetchScanUrl(row.qr_token);
+    if (!url) {
+      setMessageSuccess(false);
+      setMessage(urlErr ?? "無法組掃碼網址");
+      return;
+    }
+    try {
+      await navigator.clipboard.writeText(url);
+      setCopiedSessionId(row.id);
+      window.setTimeout(() => setCopiedSessionId(null), 2000);
+    } catch {
+      window.prompt("請手動複製", url);
+    }
   };
 
   const handleCopyUrl = async () => {
@@ -200,7 +371,7 @@ export function AdminQrGeneratorClient({
           </h1>
           <p className="mt-1 text-sm text-menu-muted">
             客人入座時產生新 QR：超過「用餐時間」後掃碼失效；「點餐時間」內才可送單（預設用餐 2
-            小時、點餐 90 分鐘）。同桌新開一場會自動作廢舊場次 QR。
+            小時、點餐 90 分鐘）。同桌新開一場會自動作廢舊場次 QR。下方可管理進行中的節次。
           </p>
         </div>
         <div className="flex flex-wrap items-center gap-2">
@@ -314,7 +485,13 @@ export function AdminQrGeneratorClient({
         </div>
 
         {message ? (
-          <p className="mt-4 rounded-xl border border-red-200 bg-red-50 px-3 py-2 text-sm text-red-900">
+          <p
+            className={`mt-4 rounded-xl border px-3 py-2 text-sm ${
+              messageSuccess
+                ? "border-emerald-200 bg-emerald-50 text-emerald-900"
+                : "border-red-200 bg-red-50 text-red-900"
+            }`}
+          >
             {message}
           </p>
         ) : null}
@@ -374,6 +551,111 @@ export function AdminQrGeneratorClient({
             請按「產生入座 QR」以取得本桌限時掃碼。
           </p>
         ) : null}
+      </div>
+
+      <div className="mt-8 rounded-3xl border border-menu-border bg-menu-card p-6 shadow-sm sm:p-8">
+        <div className="flex flex-wrap items-baseline justify-between gap-2">
+          <h2 className="font-menu-display text-lg font-bold text-menu-ink">
+            進行中的入座節次
+          </h2>
+          <button
+            type="button"
+            onClick={() => void loadOpenSessions()}
+            className="text-sm font-medium text-menu-primary underline-offset-2 hover:underline"
+          >
+            重新整理列表
+          </button>
+        </div>
+        <p className="mt-1 text-sm text-menu-muted">
+          關閉節次後掃碼即失效。重新產生會開新 QR 並自動作廢該桌舊節次（沿用原用餐／點餐分鐘數）。
+        </p>
+
+        {sessionsError ? (
+          <p className="mt-4 rounded-xl border border-red-200 bg-red-50 px-3 py-2 text-sm text-red-900">
+            無法載入節次：{sessionsError}
+          </p>
+        ) : null}
+
+        {sessionsLoading ? (
+          <p className="mt-6 text-sm text-menu-muted">載入中…</p>
+        ) : displayedOpenSessions.length === 0 ? (
+          <p className="mt-6 text-sm text-menu-muted">
+            目前所選餐廳沒有進行中的入座 QR。
+          </p>
+        ) : (
+          <ul className="mt-6 space-y-4">
+            {displayedOpenSessions.map((row) => {
+              const tbl = tableById[row.table_id];
+              const tableLabel = tbl?.table_number ?? "—";
+              const restName =
+                restaurantNames[row.restaurant_id] ?? tbl?.restaurant_name ?? "—";
+              const started =
+                typeof row.started_at === "string"
+                  ? row.started_at
+                  : new Date().toISOString();
+              const orderUntil = sessionEndIso(
+                started,
+                Number(row.order_window_minutes),
+              );
+              const sessionUntil = sessionEndIso(
+                started,
+                Number(row.dining_duration_minutes),
+              );
+              const busyRow =
+                revokingId === row.id || regeneratingId === row.id;
+              return (
+                <li
+                  key={row.id}
+                  className="rounded-2xl border border-menu-border bg-menu-bg/50 px-4 py-4"
+                >
+                  <div className="min-w-0 space-y-2 text-sm">
+                    <p className="font-semibold text-menu-ink">
+                      {restName} · {tableLabel} 桌
+                    </p>
+                    <p className="text-xs text-menu-muted">
+                      開始：{new Date(started).toLocaleString("zh-TW")}
+                      <br />
+                      點餐截止：{new Date(orderUntil).toLocaleString("zh-TW")}{" "}
+                      · 用餐截止：
+                      {new Date(sessionUntil).toLocaleString("zh-TW")}
+                      <br />
+                      用餐 {row.dining_duration_minutes} 分／點餐{" "}
+                      {row.order_window_minutes} 分
+                    </p>
+                    <div className="flex flex-wrap gap-2 pt-1">
+                      <button
+                        type="button"
+                        disabled={busyRow}
+                        onClick={() => void copySessionLink(row)}
+                        className="rounded-lg border border-menu-border bg-menu-card px-3 py-1.5 text-xs font-semibold text-menu-ink hover:bg-menu-surface disabled:opacity-50"
+                      >
+                        {copiedSessionId === row.id ? "已複製連結" : "複製掃碼連結"}
+                      </button>
+                      <button
+                        type="button"
+                        disabled={busyRow}
+                        onClick={() => void regenerateSession(row)}
+                        className="rounded-lg border border-menu-primary/40 bg-menu-primary/10 px-3 py-1.5 text-xs font-semibold text-menu-primary hover:bg-menu-primary/20 disabled:opacity-50"
+                      >
+                        {regeneratingId === row.id
+                          ? "產生中…"
+                          : "重新產生 QR"}
+                      </button>
+                      <button
+                        type="button"
+                        disabled={busyRow}
+                        onClick={() => void revokeSession(row)}
+                        className="rounded-lg border border-red-200 bg-red-50 px-3 py-1.5 text-xs font-semibold text-red-900 hover:bg-red-100 disabled:opacity-50"
+                      >
+                        {revokingId === row.id ? "關閉中…" : "關閉節次"}
+                      </button>
+                    </div>
+                  </div>
+                </li>
+              );
+            })}
+          </ul>
+        )}
       </div>
     </div>
   );

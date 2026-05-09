@@ -100,7 +100,7 @@ export default async function AdminHubPage() {
             入座 QR（限時）
           </h2>
           <p className="mt-2 text-sm leading-relaxed text-menu-muted">
-            客人入座時產生新 QR，可設定用餐／點餐時間，逾時失效。
+            產生限時入座 QR，並可關閉或重新產生進行中的節次。
           </p>
         </Link>
         <Link
