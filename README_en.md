@@ -1,6 +1,6 @@
 # MenuGo
 
-English Version | [繁體中文版](./[README.md](http://README.md))
+English Version | [繁體中文版](./README.md)
 
 > A minimalist QR-code ordering system designed to streamline dining experiences and eliminate paper-based workflows.
 
@@ -74,13 +74,27 @@ Open [http://localhost:3000](http://localhost:3000) with your browser to view th
 
 ```
 MenuGo/
-├── public/             # Static assets and images
-├── src/
-│   ├── app/            # Next.js App Router (Pages & API routes)
-│   ├── components/     # Reusable UI components
-│   ├── lib/            # Utility functions and Supabase client config
-│   └── types/          # TypeScript definitions
-├── .env.example        # Environment variable template
+├── app/                      # Next.js App Router
+│   ├── page.tsx              # Home
+│   ├── layout.tsx            # Root layout
+│   ├── globals.css           # Global styles
+│   ├── admin/                # Dashboard: auth, tables, menus, session QR, orders
+│   ├── scan/[token]/         # Customer scan-to-order page
+│   ├── auth/callback/        # Supabase Auth callback route
+│   └── api/                  # Route Handlers
+│       ├── order/            # Place order (create_customer_order RPC)
+│       ├── orders/[orderId]/ # Accept / complete order
+│       ├── qrcode/           # QR image generation
+│       └── scan/             # Build scan URL, order lookup by token
+├── components/
+│   ├── admin/                # Dashboard UI (incl. realtime order board)
+│   └── scan/                 # Scan UX: menu, countdown, order history
+├── lib/                      # Supabase clients, scan HMAC, admin helpers
+├── public/                   # Static assets
+├── scripts/                  # Database setup / seed, print-scan-url, etc.
+├── supabase/                      # schema, migrations, RPC, demo seed SQL
+├── middleware.ts             # Supabase session cookie refresh
+├── .env.example
 └── package.json
 ```
 
